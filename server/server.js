@@ -40,8 +40,13 @@ const sha = s => crypto.createHash("sha256").update(String(s)).digest("hex");
 // Cada sala tiene su propio estado y tres tokens: agent, admin y view.
 function loadRooms() {
   let raw = process.env.LWO_ROOMS;
+  // Modo token unico: LWO_TOKEN -> una sola sala "default" donde ese token sirve para todo.
+  if (!raw && process.env.LWO_TOKEN) {
+    console.warn("[config] Modo token unico (LWO_TOKEN).");
+    return new Map([[sha(process.env.LWO_TOKEN), { room: "default", role: "all" }]]);
+  }
   if (!raw && fs.existsSync(ROOMS_FILE)) raw = fs.readFileSync(ROOMS_FILE, "utf8");
-  if (!raw) fail("Faltan las salas. Define LWO_ROOMS o crea rooms.json (ver tools/gen-rooms.js).");
+  if (!raw) fail("Faltan las salas. Define LWO_TOKEN, LWO_ROOMS o crea rooms.json.");
   let cfg;
   try { cfg = JSON.parse(raw); } catch (e) { fail("rooms invalido: " + e.message); }
   const byTokenHash = new Map(); // sha256(token) -> { room, role }
@@ -60,7 +65,6 @@ function loadRooms() {
 }
 const TOKENS = loadRooms();
 function authenticate(token) { return token ? TOKENS.get(sha(token)) || null : null; }
-
 // ---------- Estado compartido (arbol JSON direccionado por rutas) ----------
 const UNSAFE = new Set(["__proto__", "constructor", "prototype"]);
 
