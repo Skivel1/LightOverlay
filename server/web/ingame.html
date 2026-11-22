@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>LWO In-Game</title>
+    <link rel="stylesheet" type="text/css" href="ingame.css" media="screen">
+  </head>
+  <body>
+    <div id="stage">
+
+      <!-- Barra principal: [logo][equipo][torres][oro][kills] [espadas] [kills][oro][torres][equipo][logo] -->
+      <div id="bar">
+        <div class="side" id="sideL">
+          <div class="logo"><img id="logoL" alt=""></div>
+          <div class="team"><span class="tag" id="tagL"></span><span class="series" id="seriesL"></span></div>
+          <div class="stat towers">
+            <svg viewBox="0 0 24 24"><path d="M5 21V9h2V6h2v3h2V6h2v3h2V6h2v3h2v12zM10 21v-5a2 2 0 0 1 4 0v5z"/></svg>
+            <b id="towersL">0</b>
+          </div>
+          <div class="stat gold">
+            <svg viewBox="0 0 24 24"><path d="M12 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 3.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z"/><path d="M4 21c3-2 13-2 16 0v1H4z"/></svg>
+            <b id="goldL">0</b><i class="lead" id="leadL"></i>
+          </div>
+          <div class="kills" id="killsL">0</div>
+        </div>
+
+        <div class="center">
+          <svg viewBox="0 0 24 24"><path d="M4 3l9 9-1.5 1.5-9-9V3zm16 0v1.5l-9 9L9.5 12l9-9zM6 15l3 3-1.5 1.5L5 17l-2 2-1.5-1.5 2-2L1 13.5 2.5 12 6 15zm12 0l3.5-3 1.5 1.5-1.5 1.5 2 2L22 18.5l-2-2-2.5 2.5L16 17.5l3-3z"/></svg>
+        </div>
+
+        <div class="side right" id="sideR">
+          <div class="logo"><img id="logoR" alt=""></div>
+          <div class="team"><span class="tag" id="tagR"></span><span class="series" id="seriesR"></span></div>
+          <div class="stat towers">
+            <svg viewBox="0 0 24 24"><path d="M5 21V9h2V6h2v3h2V6h2v3h2V6h2v3h2v12zM10 21v-5a2 2 0 0 1 4 0v5z"/></svg>
+            <b id="towersR">0</b>
+          </div>
+          <div class="stat gold">
+            <svg viewBox="0 0 24 24"><path d="M12 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 3.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z"/><path d="M4 21c3-2 13-2 16 0v1H4z"/></svg>
+            <b id="goldR">0</b><i class="lead" id="leadR"></i>
+          </div>
+          <div class="kills" id="killsR">0</div>
+        </div>
+      </div>
+
+      <!-- Debajo de la barra: dragones de cada equipo y reloj de partida -->
+      <div id="under">
+        <div class="dragons" id="dragonsL"></div>
+        <div id="clock">00:00</div>
+        <div class="dragons right" id="dragonsR"></div>
+      </div>
+
+      <!-- Panel de buff (Baron / Elder) con la ventaja de oro -->
+      <div id="buff">
+        <div class="btitle" id="btitle">BARON BUFF</div>
+        <div class="brow">
+          <span id="btime">00:00</span>
+          <div class="bar"><div id="bfill"></div></div>
+          <span id="blead"></span>
+        </div>
+      </div>
+
+    </div>
+    <script src="ingame.js"></script>
+  </body>
+</html>
