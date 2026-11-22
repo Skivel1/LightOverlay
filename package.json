@@ -1,0 +1,13 @@
+{
+  "name": "lwo-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Overlay de picks y bans de LoL: servidor y agente en Node",
+  "scripts": {
+    "server": "node server/server.js",
+    "agent": "node agent/agent.js",
+    "gen-room": "node tools/gen-rooms.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": { "ws": "^8.18.0" }
+}

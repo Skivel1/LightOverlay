@@ -1,0 +1,14 @@
+# Variable LWO_ROOMS (JSON). Genera los tokens con: node tools/gen-rooms.js <sala>  y copia el contenido de rooms.json.
+services:
+  lwo:
+    build: .
+    restart: unless-stopped
+    environment:
+      LWO_ROOMS: ${LWO_ROOMS}
+      # ALLOWED_ORIGINS: https://tu-host   (opcional)
+    ports:
+      - "127.0.0.1:9345:9345"   # Tailscale Funnel / Cloudflare Tunnel apuntan a este puerto
+    volumes:
+      - lwo-data:/data
+volumes:
+  lwo-data:
