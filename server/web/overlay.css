@@ -622,10 +622,10 @@ body *{
 }
 
 /* Logos de equipo con su color original (sin silueta blanca) */
-.teaminfo-left .logo img,
-.teaminfo-right .logo img {
-  filter: none;
-}
+/*.teaminfo-left .logo img,
+/*.teaminfo-right .logo img {
+/*  filter: none;
+/*}
 
 
 
