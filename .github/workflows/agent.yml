@@ -1,0 +1,20 @@
+name: Build LWOAgent
+on:
+  push:
+    branches: [main]
+    paths: ['agent/**', 'package.json']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npx @yao-pkg/pkg agent/agent.js -t node22-win-x64 -o LWOAgent.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LWOAgent-win-x64
+          path: LWOAgent.exe
