@@ -4,8 +4,8 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      LWO_ROOMS: ${LWO_ROOMS}
-      # ALLOWED_ORIGINS: https://tu-host   (opcional)
+      LWO_TOKEN: ${LWO_TOKEN:-}
+      LWO_ROOMS: '${LWO_ROOMS:-}'
     ports:
       - "127.0.0.1:9345:9345"   # Tailscale Funnel / Cloudflare Tunnel apuntan a este puerto
     volumes:
