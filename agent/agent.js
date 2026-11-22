@@ -10,6 +10,7 @@ const path = require("path");
 const https = require("https");
 const { execFile } = require("child_process");
 const WebSocket = require("ws");
+const { startInGame } = require("./ingame");
 
 const SESSION_PATH = "lolChampSelect/session";
 const SUMMONERS_PATH = "lolChampSelect/summoners";
