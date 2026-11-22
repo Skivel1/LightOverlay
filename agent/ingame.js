@@ -65,24 +65,30 @@ function nameKeys(p) {
   return keys;
 }
 
-// "Turret_T2_L_03_A" -> "outer" | "inner" | "inhib" | "nexus" (null si no reconoce el nombre).
-// Carriles L/R: 03 exterior, 02 interior, 01 inhibidor. Carril C (mid): 05, 04, 03 y 02/01 nexus.
+// Interpreta el nombre de una torre y devuelve { owner, tier } (owner = equipo DUEÑO de la torre).
+// Formato actual:  "Turret_TChaos_L1_P3_2254202041_0"  (P3 exterior, P2 interior, P1 inhibidor)
+// Formato antiguo: "Turret_T2_L_03_A"                  (T1 = ORDER, T2 = CHAOS; 03/02/01; mid: 05/04/03)
+// Si no reconoce el tier devuelve tier = null (la torre igual se cuenta, solo sin oro de torre/placas).
 const seenTurrets = new Set();
-function turretTier(name) {
-  const m = /^Turret_T[12]_([LCR])_(\d+)_A/i.exec(name || "");
-  let tier = null;
-  if (m) {
-    const n = Number(m[2]);
-    const map = m[1].toUpperCase() === "C"
+function parseTurret(name) {
+  let owner = null, tier = null, m;
+  if ((m = /^Turret_T(Order|Chaos)_[^_]*_P(\d+)_/i.exec(name || ""))) {
+    owner = m[1].toLowerCase() === "order" ? "ORDER" : "CHAOS";
+    tier = { 3: "outer", 2: "inner", 1: "inhib" }[Number(m[2])] || null;
+  } else if ((m = /^Turret_T([12])_([LCR])_(\d+)_A/i.exec(name || ""))) {
+    owner = m[1] === "1" ? "ORDER" : "CHAOS";
+    const n = Number(m[3]);
+    tier = (m[2].toUpperCase() === "C"
       ? { 5: "outer", 4: "inner", 3: "inhib", 2: "nexus", 1: "nexus" }
-      : { 3: "outer", 2: "inner", 1: "inhib" };
-    tier = map[n] || null;
+      : { 3: "outer", 2: "inner", 1: "inhib" })[n] || null;
+  } else if ((m = /T(Order|Chaos)/i.exec(name || ""))) { // ultimo recurso: solo el equipo dueño
+    owner = m[1].toLowerCase() === "order" ? "ORDER" : "CHAOS";
   }
   if (!seenTurrets.has(name)) { // para verificar el mapeo en una partida real
     seenTurrets.add(name);
-    log(`[InGame] Torre destruida: ${name} -> ${tier || "tier desconocido"}`);
+    log(`[InGame] Torre destruida: ${name} -> dueno ${owner || "?"}, tier ${tier || "desconocido"}`);
   }
-  return tier;
+  return { owner, tier };
 }
 
 const killBounty = level => GOLD.KILL_BASE + Math.max(0, (Number(level) || 1) - 6) * GOLD.KILL_PER_LEVEL;
@@ -158,12 +164,11 @@ function computeStats(d, memo = {}) {
         for (const a of assisters) row(a).assists += pool / assisters.length;
       }
     } else if (ev.EventName === "TurretKilled") {
-      // T1 = torre del equipo ORDER, T2 = torre del equipo CHAOS -> la destruye el otro equipo
-      const m = /_T([12])_/.exec(ev.TurretKilled || "");
-      if (m) {
-        const team = m[1] === "1" ? "CHAOS" : "ORDER";
+      // Gana el equipo contrario al dueno de la torre; si el nombre no se entiende, el del asesino.
+      const { owner, tier } = parseTurret(ev.TurretKilled);
+      const team = owner ? (owner === "ORDER" ? "CHAOS" : "ORDER") : killerTeam(ev);
+      if (team && teams[team]) {
         teams[team].towers++;
-        const tier = turretTier(ev.TurretKilled);
         const cfg = tier && GOLD.TURRET[tier];
         if (cfg) {
           shareTeam(team, "towers", cfg.global * (sizeByTeam[team] || 5)); // global: cada jugador recibe `global`
