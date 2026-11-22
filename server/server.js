@@ -27,10 +27,10 @@ const DDRAGON = "https://ddragon.leagueoflegends.com/cdn/";
 
 // Que rutas del estado puede escribir cada rol. "view" (el overlay en OBS) solo lee.
 const WRITE_RULES = {
-  agent: ["lolChampSelect/session", "lolChampSelect/summoners"],
+  agent: ["lolChampSelect/session", "lolChampSelect/summoners", "lolInGame/stats"],
   admin: ["lolChampSelect/admin"],
   view: [],
-  all: ["lolChampSelect"], // modo token unico (LWO_TOKEN)
+  all: ["lolChampSelect", "lolInGame"], // modo token unico (LWO_TOKEN)
 };
 
 function fail(msg) { console.error("[config] " + msg); process.exit(1); }
