@@ -627,7 +627,9 @@ body *{
 
 
 
-/* Equipo derecho: logo pegado al borde derecho, nombre junto al logo y score hacia el centro */
+/* ===== Encabezado de equipos: logo en el borde, nombre pegado al logo, score hacia el centro ===== */
+
+/* Equipo derecho */
 .teaminfo-right {
   flex-direction: row-reverse;
 }
@@ -654,4 +656,22 @@ body *{
 
 .teaminfo-right .score {
   margin-right: auto;
+}
+
+/* Equipo izquierdo: el nombre ocupa lo que necesite y el espacio del logo se ajusta */
+.teaminfo-left .logo {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 130px;
+}
+
+.teaminfo-left .name {
+  width: auto;
+  min-width: 240px;
+  flex: 0 0 auto;
+}
+
+.teaminfo-left .name p {
+  width: auto;
+  white-space: nowrap;
 }
