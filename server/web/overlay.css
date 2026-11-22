@@ -626,3 +626,32 @@ body *{
 
 
 
+
+/* Equipo derecho: logo pegado al borde derecho, nombre junto al logo y score hacia el centro */
+.teaminfo-right {
+  flex-direction: row-reverse;
+}
+
+.teaminfo-right .logo {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.teaminfo-right .logo img {
+  margin-left: 20px;
+}
+
+.teaminfo-right .name {
+  width: auto;
+  flex: 0 1 auto;
+}
+
+.teaminfo-right .name p {
+  width: auto;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.teaminfo-right .score {
+  margin-right: auto;
+}
