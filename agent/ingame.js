@@ -2,14 +2,44 @@
 // Lee la API local de partida de League (https://127.0.0.1:2999/liveclientdata) y publica
 // estadisticas por equipo en "lolInGame/stats": kills, oro estimado, torres, dragones y buffs.
 //
-// IMPORTANTE: el oro de los demas jugadores NO lo entrega la API. Aqui se estima con el valor
-// de los items que lleva cada uno (sin consumibles). No incluye oro sin gastar ni piezas
-// vendidas o deshechas, asi que es una estimacion, no el oro total real.
+// IMPORTANTE: la API NO entrega el oro de los demas jugadores (solo el de quien juega).
+// Por eso el oro se ESTIMA con un modelo de ingresos que se recalcula cada segundo:
+//   oro inicial + oro pasivo + CS + kills + asistencias + torres + placas + inhibidores
+// Ademas se usa el valor de los items como suelo (nadie tiene items que no pudo pagar):
+// si el modelo se queda corto, se corrige hacia arriba y se mantiene esa correccion.
+// Sigue siendo una estimacion: no cuenta shutdowns/rachas, epicos ni oro de runas/items.
 
 const https = require("https");
 
 const STATS_PATH = "lolInGame/stats";
 const BUFF_SECONDS = { BARON: 180, ELDER: 150 }; // duracion de los buffs; ajustalos si cambia el parche
+
+// ---- Valores de oro (temporada 2026 / parche 26.x). Ajustalos aqui si cambian. ----
+const GOLD = {
+  START: 500,              // oro inicial por jugador
+  PASSIVE_START: 100,      // el oro pasivo empieza en 1:40
+  PASSIVE_PER_SEC: 2.04,   // 20.4 cada 10 s
+  CS: 21,                  // promedio por minion/monstruo (aprox.; sube un poco en late)
+  KILL_BASE: 300,          // bounty base de un campeon (300 hasta nivel 6)
+  KILL_PER_LEVEL: 10,      // +10 por nivel de la victima desde el 7 (420 en nivel 18)
+  ASSIST_RATIO: 0.5,       // bolsa de asistencias = 50% del bounty, repartida entre asistentes
+  FIRST_BLOOD_KILL: 100,   // extra en la primera sangre
+  FIRST_BLOOD_ASSIST: 50,
+  PLATE: 120,              // oro local por placa
+  PLATE_DECAY_START: 660,  // las placas de torre exterior pierden valor desde 11:00...
+  PLATE_DECAY_PER_MIN: 10, // ...10 por minuto...
+  PLATE_DECAY_MAX: 40,     // ...hasta 40 menos (a las 15:00)
+  FIRST_TURRET: 300,       // bonus de la primera torre de la partida
+  INHIB: 50,               // inhibidor destruido
+  // Por tier de torre: oro global (lo recibe CADA jugador del equipo) y placas (todas caen
+  // cuando la torre cae, porque las placas son segmentos de su vida).
+  TURRET: {
+    outer: { global: 50, plates: 5 },
+    inner: { global: 25, plates: 5 },
+    inhib: { global: 25, plates: 5 },
+    nexus: { global: 25, plates: 0 },
+  },
+};
 
 const log = (...a) => console.log(new Date().toLocaleTimeString(), ...a);
 
@@ -35,38 +65,115 @@ function nameKeys(p) {
   return keys;
 }
 
-const emptyTeam = () => ({ kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [] });
+// "Turret_T2_L_03_A" -> "outer" | "inner" | "inhib" | "nexus" (null si no reconoce el nombre).
+// Carriles L/R: 03 exterior, 02 interior, 01 inhibidor. Carril C (mid): 05, 04, 03 y 02/01 nexus.
+const seenTurrets = new Set();
+function turretTier(name) {
+  const m = /^Turret_T[12]_([LCR])_(\d+)_A/i.exec(name || "");
+  let tier = null;
+  if (m) {
+    const n = Number(m[2]);
+    const map = m[1].toUpperCase() === "C"
+      ? { 5: "outer", 4: "inner", 3: "inhib", 2: "nexus", 1: "nexus" }
+      : { 3: "outer", 2: "inner", 1: "inhib" };
+    tier = map[n] || null;
+  }
+  if (!seenTurrets.has(name)) { // para verificar el mapeo en una partida real
+    seenTurrets.add(name);
+    log(`[InGame] Torre destruida: ${name} -> ${tier || "tier desconocido"}`);
+  }
+  return tier;
+}
 
-// Funcion pura: recibe la respuesta de /allgamedata y devuelve las estadisticas.
-function computeStats(d) {
+const killBounty = level => GOLD.KILL_BASE + Math.max(0, (Number(level) || 1) - 6) * GOLD.KILL_PER_LEVEL;
+
+// Oro por placa segun el momento: las exteriores pierden valor entre 11:00 y 15:00.
+function plateGold(tier, t) {
+  if (tier !== "outer") return GOLD.PLATE;
+  const decay = ((t - GOLD.PLATE_DECAY_START) / 60) * GOLD.PLATE_DECAY_PER_MIN;
+  return GOLD.PLATE - Math.min(GOLD.PLATE_DECAY_MAX, Math.max(0, decay));
+}
+
+const emptyTeam = () => ({
+  kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [],
+  goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, items: 0 }, // desglose (para ajustar el modelo)
+});
+
+// Funcion casi pura: recibe /allgamedata y devuelve las estadisticas. `memo` (opcional) guarda la
+// correccion por jugador entre llamadas; sin memo cada llamada es independiente.
+function computeStats(d, memo = {}) {
   const players = (d && d.allPlayers) || [];
-  const events = (d && d.events && d.events.Events) || [];
+  const events = ((d && d.events && d.events.Events) || []).slice().sort((x, y) => x.EventTime - y.EventTime);
   const gameTime = Number(d && d.gameData && d.gameData.gameTime) || 0;
   const teams = { ORDER: emptyTeam(), CHAOS: emptyTeam() };
 
-  const teamByName = {};
-  for (const p of players) for (const k of nameKeys(p)) teamByName[k] = p.team;
+  // Nueva partida (el reloj retrocede): se descarta la correccion de la anterior.
+  if (memo.last != null && gameTime < memo.last) memo.bias = {};
+  memo.last = gameTime;
+  if (!memo.bias) memo.bias = {};
 
+  const teamByName = {};
+  const playerByName = {};
+  const sizeByTeam = { ORDER: 0, CHAOS: 0 };
   for (const p of players) {
-    const t = teams[p.team];
-    if (!t) continue;
-    const s = p.scores || {};
-    t.kills += s.kills || 0;
-    t.deaths += s.deaths || 0;
-    t.assists += s.assists || 0;
-    t.cs += s.creepScore || 0;
-    t.gold += itemGold(p.items);
+    sizeByTeam[p.team] = (sizeByTeam[p.team] || 0) + 1;
+    for (const k of nameKeys(p)) { teamByName[k] = p.team; playerByName[k] = p; }
   }
+
+  // Libro de oro por jugador, desglosado por origen.
+  const pid = p => p.riotId || p.summonerName || nameKeys(p)[0] || "?";
+  const ledger = new Map();
+  for (const p of players) {
+    const s = p.scores || {};
+    const passive = Math.max(0, gameTime - GOLD.PASSIVE_START) * GOLD.PASSIVE_PER_SEC;
+    ledger.set(pid(p), {
+      p, base: GOLD.START + passive, cs: (s.creepScore || 0) * GOLD.CS,
+      kills: 0, assists: 0, towers: 0, plates: 0,
+    });
+  }
+  const row = p => (p ? ledger.get(pid(p)) : null);
+  // Reparte oro compartido (torres, placas) en partes iguales entre los jugadores del equipo.
+  const shareTeam = (team, field, amount) => {
+    const n = sizeByTeam[team] || 5;
+    for (const p of players) if (p.team === team) row(p)[field] += amount / n;
+  };
 
   const killerTeam = ev => teamByName[ev.KillerName] ||
     (ev.Assisters || []).map(a => teamByName[a]).find(Boolean) || null;
 
   const buffs = [];
+  let firstBlood = true, firstTurret = true;
   for (const ev of events) {
-    if (ev.EventName === "TurretKilled") {
-      // T1 = torre del equipo ORDER, T2 = torre del equipo CHAOS
+    if (ev.EventName === "ChampionKill") {
+      const killer = playerByName[ev.KillerName];
+      const victim = playerByName[ev.VictimName];
+      const bounty = killBounty(victim && victim.level);
+      const fbKill = firstBlood ? GOLD.FIRST_BLOOD_KILL : 0;
+      const fbAssist = firstBlood ? GOLD.FIRST_BLOOD_ASSIST : 0;
+      firstBlood = false;
+      if (killer) row(killer).kills += bounty + fbKill;
+      const assisters = (ev.Assisters || []).map(a => playerByName[a]).filter(Boolean);
+      if (assisters.length) {
+        const pool = Math.min(bounty * GOLD.ASSIST_RATIO, GOLD.KILL_BASE * GOLD.ASSIST_RATIO) + fbAssist;
+        for (const a of assisters) row(a).assists += pool / assisters.length;
+      }
+    } else if (ev.EventName === "TurretKilled") {
+      // T1 = torre del equipo ORDER, T2 = torre del equipo CHAOS -> la destruye el otro equipo
       const m = /_T([12])_/.exec(ev.TurretKilled || "");
-      if (m) teams[m[1] === "1" ? "CHAOS" : "ORDER"].towers++;
+      if (m) {
+        const team = m[1] === "1" ? "CHAOS" : "ORDER";
+        teams[team].towers++;
+        const tier = turretTier(ev.TurretKilled);
+        const cfg = tier && GOLD.TURRET[tier];
+        if (cfg) {
+          shareTeam(team, "towers", cfg.global * (sizeByTeam[team] || 5)); // global: cada jugador recibe `global`
+          shareTeam(team, "plates", cfg.plates * plateGold(tier, ev.EventTime));
+        }
+        if (firstTurret) { firstTurret = false; shareTeam(team, "towers", GOLD.FIRST_TURRET); }
+      }
+    } else if (ev.EventName === "InhibKilled") {
+      const team = teamByName[ev.KillerName] || null;
+      if (team) shareTeam(team, "towers", GOLD.INHIB);
     } else if (ev.EventName === "DragonKill") {
       const team = killerTeam(ev);
       if (team && teams[team]) teams[team].dragons.push(ev.DragonType || "Unknown");
@@ -79,6 +186,32 @@ function computeStats(d) {
     }
   }
   const active = buffs.filter(b => b.endsAt > gameTime).sort((a, b) => b.endsAt - a.endsAt)[0];
+
+  // Totales por equipo, con el suelo de items por jugador.
+  for (const r of ledger.values()) {
+    const t = teams[r.p.team];
+    if (!t) continue;
+    const s = r.p.scores || {};
+    t.kills += s.kills || 0;
+    t.deaths += s.deaths || 0;
+    t.assists += s.assists || 0;
+    t.cs += s.creepScore || 0;
+
+    const model = r.base + r.cs + r.kills + r.assists + r.towers + r.plates;
+    const id = pid(r.p);
+    const floor = itemGold(r.p.items) - model; // si es > 0, el modelo se quedo corto
+    if (floor > (memo.bias[id] || 0)) memo.bias[id] = floor;
+    const bias = memo.bias[id] || 0;
+
+    t.gold += model + bias;
+    const g = t.goldParts;
+    g.base += r.base; g.cs += r.cs; g.kills += r.kills; g.assists += r.assists;
+    g.towers += r.towers; g.plates += r.plates; g.items += bias;
+  }
+  for (const t of Object.values(teams)) {
+    t.gold = Math.round(t.gold);
+    for (const k of Object.keys(t.goldParts)) t.goldParts[k] = Math.round(t.goldParts[k]);
+  }
 
   // Equipo del jugador local (el del agente): el overlay lo pone a la izquierda, como en el champ select.
   const me = d && d.activePlayer;
@@ -121,10 +254,11 @@ function startInGame(publisher, opts = {}) {
   let state = "unknown"; // "in" | "out"
   let timer = null;
   let stopped = false;
+  const memo = {}; // correccion de oro por jugador; se reinicia sola al empezar otra partida
 
   const tick = async () => {
     try {
-      const stats = computeStats(await fetchLive(port, host));
+      const stats = computeStats(await fetchLive(port, host), memo);
       if (state !== "in") log("[InGame] Partida detectada.");
       state = "in";
       publisher.publish(STATS_PATH, stats);
@@ -132,6 +266,7 @@ function startInGame(publisher, opts = {}) {
       if (state !== "out") {
         if (state === "in") log("[InGame] Partida terminada.");
         state = "out";
+        memo.bias = {}; memo.last = null;
         publisher.publish(STATS_PATH, null);
       }
     }
