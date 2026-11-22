@@ -215,6 +215,7 @@ async function main() {
   log(`[Agent] Servidor: ${maskUrl(url)}`);
   const publisher = new Publisher(url);
   publisher.start();
+  startInGame(publisher); // estadisticas de partida (oro estimado, kills, torres, dragones)
   await lcuLoop(new SessionProcessor(publisher, async () => null));
 }
 
