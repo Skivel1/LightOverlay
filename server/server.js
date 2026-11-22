@@ -30,6 +30,7 @@ const WRITE_RULES = {
   agent: ["lolChampSelect/session", "lolChampSelect/summoners"],
   admin: ["lolChampSelect/admin"],
   view: [],
+  all: ["lolChampSelect"], // modo token unico (LWO_TOKEN)
 };
 
 function fail(msg) { console.error("[config] " + msg); process.exit(1); }
