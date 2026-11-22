@@ -4,11 +4,13 @@
 // Parametros de la URL:
 //   ?token=...   token del servidor (igual que el overlay de picks y bans)
 //   ?swap=1      invierte los lados (por defecto el equipo del jugador local va a la izquierda)
+//   ?full=1      muestra el oro completo (12,345) en vez de abreviado (12.3k), para ver el cambio cada segundo
 
 (function () {
   var q = new URLSearchParams(location.search);
   var token = q.get("token") || "";
   var swap = q.get("swap") === "1";
+  var fullGold = q.get("full") === "1";
   var WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" +
     (token ? "?token=" + encodeURIComponent(token) : "");
 
@@ -72,6 +74,7 @@
 
   function fmtGold(n) {
     n = Math.round(n || 0);
+    if (fullGold) return n.toLocaleString("en-US");
     return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
   }
 
