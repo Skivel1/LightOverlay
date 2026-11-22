@@ -1,4 +1,3 @@
-@@ -0,0 +1,161 @@
 // Barra superior de partida. Lee "lolInGame/stats" (lo publica el agente) y los datos de equipo
 // del admin (nombre, logo, color, marcador de la serie).
 //
