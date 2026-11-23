@@ -509,6 +509,13 @@ function CreateSlot() {
     return _this;
 }
 
+window._bannerPreload = window._bannerPreload || {};
+        if (bannerFile && !window._bannerPreload[bannerFile]) {
+            var pre = new Image();
+            pre.src = "assets/champselectbanner/" + encodeURIComponent(bannerFile);
+            window._bannerPreload[bannerFile] = pre;
+        }
+
 function Main() {
     for (var i = 0; i < 5; i++) {
         _S.picks[1].push(CreateSlot());
