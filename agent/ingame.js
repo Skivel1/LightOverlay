@@ -120,7 +120,7 @@ function plateGold(tier, t) {
 }
 
 const emptyTeam = () => ({
-  kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [],
+  kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [], heralds: 0, barons: 0, grubs: 0,
   goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, epics: 0, items: 0 },
 });
 
@@ -128,10 +128,22 @@ function computeObjectives(events, gameTime, teamOf) {
   let lastDragon = null, lastElder = null, soulAt = null, soulTeam = null;
   let grubs = 0, heraldDone = false, lastBaron = null;
   const drakes = { ORDER: 0, CHAOS: 0 };
+  const feed = [];
+  const OBJ_KIND = { DragonKill: "DRAGON", HeraldKill: "HERALD", BaronKill: "BARON", HordeKill: "GRUB" };
 
   for (const ev of events) {
     const n = ev.EventName;
     const evTime = Number(ev.EventTime);
+    if (OBJ_KIND[n]) {
+      feed.push({
+        id: `${ev.EventID ?? ""}_${n}_${evTime}`,
+        kind: n === "DragonKill" && ev.DragonType === "Elder" ? "ELDER" : OBJ_KIND[n],
+        dragonType: ev.DragonType || null,
+        team: teamOf(ev),
+        time: Math.floor(evTime || 0),
+        stolen: ev.Stolen === true || ev.Stolen === "True",
+      });
+    }
     if (n === "DragonKill") {
       if (ev.DragonType === "Elder") {
         if (!Number.isNaN(evTime)) lastElder = evTime;
@@ -169,7 +181,7 @@ function computeObjectives(events, gameTime, teamOf) {
   const herald = (heraldDone || gameTime >= TIMERS.HERALD_DESPAWN) ? done() : timer(TIMERS.HERALD_FIRST);
   const baron = timer(lastBaron != null ? lastBaron + TIMERS.BARON_RESPAWN : TIMERS.BARON_FIRST);
 
-  return { dragon, grubs: grubsObj, herald, baron };
+  return { dragon, grubs: grubsObj, herald, baron, feed: feed.slice(-8) };
 }
 
 function computeStats(d, memo = {}) {
@@ -309,14 +321,17 @@ function computeStats(d, memo = {}) {
     } else if (ev.EventName === "BaronKill") {
       const team = killerTeam(ev);
       if (team) {
+        if (teams[team]) teams[team].barons++;
         buffs.push({ type: "BARON", team, endsAt: evTime + BUFF_SECONDS.BARON });
         if (GOLD.EPIC.BARON) shareTeam(team, "epics", GOLD.EPIC.BARON * (sizeByTeam[team] || 5));
       }
     } else if (ev.EventName === "HeraldKill") {
       const team = killerTeam(ev);
+      if (team && teams[team]) teams[team].heralds++;
       if (team && GOLD.EPIC.HERALD) shareTeam(team, "epics", GOLD.EPIC.HERALD * (sizeByTeam[team] || 5));
     } else if (GRUB_EVENTS.includes(ev.EventName)) {
       const team = killerTeam(ev);
+      if (team && teams[team]) teams[team].grubs++;
       if (team && GOLD.EPIC.GRUB) shareTeam(team, "epics", GOLD.EPIC.GRUB * (sizeByTeam[team] || 5));
     }
   }
