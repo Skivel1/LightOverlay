@@ -1,18 +1,38 @@
 "use strict";
 // Lee la API local de partida de League (https://127.0.0.1:2999/liveclientdata) y publica
-// estadisticas por equipo en "lolInGame/stats": kills, oro estimado, torres, dragones y buffs.
+// estadisticas por equipo en "lolInGame/stats": kills, oro estimado, torres, dragones, buffs
+// y timers de objetivos (dragon/elder, bacuolarvas, heraldo, baron).
 //
 // IMPORTANTE: la API NO entrega el oro de los demas jugadores (solo el de quien juega).
 // Por eso el oro se ESTIMA con un modelo de ingresos que se recalcula cada segundo:
-//   oro inicial + oro pasivo + CS + kills + asistencias + torres + placas + inhibidores
+//   oro inicial + oro pasivo + CS + kills + asistencias + torres + placas + inhibidores + epicos
 // Ademas se usa el valor de los items como suelo (nadie tiene items que no pudo pagar):
 // si el modelo se queda corto, se corrige hacia arriba y se mantiene esa correccion.
-// Sigue siendo una estimacion: no cuenta shutdowns/rachas, epicos ni oro de runas/items.
+// Sigue siendo una estimacion: no cuenta shutdowns/rachas ni oro de runas/items.
 
 const https = require("https");
 
 const STATS_PATH = "lolInGame/stats";
 const BUFF_SECONDS = { BARON: 180, ELDER: 150 }; // duracion de los buffs; ajustalos si cambia el parche
+
+// ---- Timers de objetivos (en segundos). VERIFICA estos valores con tu parche. ----
+const TIMERS = {
+  DRAGON_FIRST: 300,      // 5:00
+  DRAGON_RESPAWN: 300,    // 5:00 tras matarlo
+  SOUL_DRAGONS: 4,        // dragones para el alma
+  ELDER_AFTER_SOUL: 360,  // Elder aparece 6:00 despues del alma
+  ELDER_RESPAWN: 360,
+  GRUBS_FIRST: 480,       // bacuolarvas 8:00
+  GRUBS_COUNT: 3,         // cuantas hay
+  GRUBS_DESPAWN: 885,     // se van antes del heraldo
+  HERALD_FIRST: 900,      // heraldo 15:00
+  HERALD_DESPAWN: 1485,   // se va antes del baron
+  BARON_FIRST: 1500,      // baron 25:00
+  BARON_RESPAWN: 360,     // 6:00 tras matarlo
+};
+// Nombre del evento de bacuolarvas en la API (sin confirmar; revisa el log "[InGame] Evento nuevo")
+const GRUB_EVENTS = ["HordeKill"];
+const seenEvents = new Set();
 
 // ---- Valores de oro (temporada 2026 / parche 26.x). Ajustalos aqui si cambian. ----
 const GOLD = {
@@ -31,6 +51,8 @@ const GOLD = {
   PLATE_DECAY_MAX: 40,     // ...hasta 40 menos (a las 15:00)
   FIRST_TURRET: 300,       // bonus de la primera torre de la partida
   INHIB: 50,               // inhibidor destruido
+  // Oro de epicos POR JUGADOR del equipo. Deja en 0 los que no sepas para tu parche.
+  EPIC: { BARON: 300, DRAGON: 0, HERALD: 0, GRUB: 0 },
   // Por tier de torre: oro global (lo recibe CADA jugador del equipo) y placas (todas caen
   // cuando la torre cae, porque las placas son segmentos de su vida).
   TURRET: {
@@ -102,8 +124,50 @@ function plateGold(tier, t) {
 
 const emptyTeam = () => ({
   kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [],
-  goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, items: 0 }, // desglose (para ajustar el modelo)
+  goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, epics: 0, items: 0 }, // desglose (para ajustar el modelo)
 });
+
+// Calcula el estado de cada objetivo: "spawning" (con cuenta regresiva), "alive" o "done".
+function computeObjectives(events, gameTime, teamOf) {
+  let lastDragon = null, lastElder = null, soulAt = null, soulTeam = null;
+  let grubs = 0, heraldDone = false, lastBaron = null;
+  const drakes = { ORDER: 0, CHAOS: 0 };
+
+  for (const ev of events) {
+    const n = ev.EventName;
+    if (n === "DragonKill") {
+      if (ev.DragonType === "Elder") { lastElder = ev.EventTime; continue; }
+      lastDragon = ev.EventTime;
+      const t = teamOf(ev);
+      if (t && ++drakes[t] >= TIMERS.SOUL_DRAGONS && soulAt == null) { soulAt = ev.EventTime; soulTeam = t; }
+    } else if (GRUB_EVENTS.includes(n)) {
+      grubs++;
+    } else if (n === "HeraldKill") {
+      heraldDone = true;
+    } else if (n === "BaronKill") {
+      lastBaron = ev.EventTime;
+    }
+  }
+
+  const timer = (spawnAt, extra) => Object.assign({
+    state: gameTime >= spawnAt ? "alive" : "spawning",
+    remaining: Math.max(0, Math.ceil(spawnAt - gameTime)),
+  }, extra || {});
+  const done = extra => Object.assign({ state: "done", remaining: 0 }, extra || {});
+
+  const dragon = soulAt != null
+    ? timer(lastElder != null ? lastElder + TIMERS.ELDER_RESPAWN : soulAt + TIMERS.ELDER_AFTER_SOUL, { kind: "ELDER", soulTeam })
+    : timer(lastDragon != null ? lastDragon + TIMERS.DRAGON_RESPAWN : TIMERS.DRAGON_FIRST, { kind: "DRAGON" });
+
+  const grubsObj = (grubs >= TIMERS.GRUBS_COUNT || gameTime >= TIMERS.GRUBS_DESPAWN)
+    ? done({ taken: grubs, total: TIMERS.GRUBS_COUNT })
+    : timer(TIMERS.GRUBS_FIRST, { taken: grubs, total: TIMERS.GRUBS_COUNT });
+
+  const herald = (heraldDone || gameTime >= TIMERS.HERALD_DESPAWN) ? done() : timer(TIMERS.HERALD_FIRST);
+  const baron = timer(lastBaron != null ? lastBaron + TIMERS.BARON_RESPAWN : TIMERS.BARON_FIRST);
+
+  return { dragon, grubs: grubsObj, herald, baron };
+}
 
 // Funcion casi pura: recibe /allgamedata y devuelve las estadisticas. `memo` (opcional) guarda la
 // correccion por jugador entre llamadas; sin memo cada llamada es independiente.
@@ -134,11 +198,11 @@ function computeStats(d, memo = {}) {
     const passive = Math.max(0, gameTime - GOLD.PASSIVE_START) * GOLD.PASSIVE_PER_SEC;
     ledger.set(pid(p), {
       p, base: GOLD.START + passive, cs: (s.creepScore || 0) * GOLD.CS,
-      kills: 0, assists: 0, towers: 0, plates: 0,
+      kills: 0, assists: 0, towers: 0, plates: 0, epics: 0,
     });
   }
   const row = p => (p ? ledger.get(pid(p)) : null);
-  // Reparte oro compartido (torres, placas) en partes iguales entre los jugadores del equipo.
+  // Reparte oro compartido (torres, placas, epicos) en partes iguales entre los jugadores del equipo.
   const shareTeam = (team, field, amount) => {
     const n = sizeByTeam[team] || 5;
     for (const p of players) if (p.team === team) row(p)[field] += amount / n;
@@ -150,6 +214,12 @@ function computeStats(d, memo = {}) {
   const buffs = [];
   let firstBlood = true, firstTurret = true;
   for (const ev of events) {
+    // Registra cada tipo de evento la primera vez (para confirmar nombres, p. ej. bacuolarvas).
+    if (!seenEvents.has(ev.EventName)) {
+      seenEvents.add(ev.EventName);
+      log("[InGame] Evento nuevo:", JSON.stringify(ev));
+    }
+
     if (ev.EventName === "ChampionKill") {
       const killer = playerByName[ev.KillerName];
       const victim = playerByName[ev.VictimName];
@@ -181,13 +251,25 @@ function computeStats(d, memo = {}) {
       if (team) shareTeam(team, "towers", GOLD.INHIB);
     } else if (ev.EventName === "DragonKill") {
       const team = killerTeam(ev);
-      if (team && teams[team]) teams[team].dragons.push(ev.DragonType || "Unknown");
+      if (team && teams[team]) {
+        teams[team].dragons.push(ev.DragonType || "Unknown");
+        if (GOLD.EPIC.DRAGON) shareTeam(team, "epics", GOLD.EPIC.DRAGON * (sizeByTeam[team] || 5));
+      }
       if (team && ev.DragonType === "Elder") {
         buffs.push({ type: "ELDER", team, endsAt: ev.EventTime + BUFF_SECONDS.ELDER });
       }
     } else if (ev.EventName === "BaronKill") {
       const team = killerTeam(ev);
-      if (team) buffs.push({ type: "BARON", team, endsAt: ev.EventTime + BUFF_SECONDS.BARON });
+      if (team) {
+        buffs.push({ type: "BARON", team, endsAt: ev.EventTime + BUFF_SECONDS.BARON });
+        if (GOLD.EPIC.BARON) shareTeam(team, "epics", GOLD.EPIC.BARON * (sizeByTeam[team] || 5));
+      }
+    } else if (ev.EventName === "HeraldKill") {
+      const team = killerTeam(ev);
+      if (team && GOLD.EPIC.HERALD) shareTeam(team, "epics", GOLD.EPIC.HERALD * (sizeByTeam[team] || 5));
+    } else if (GRUB_EVENTS.includes(ev.EventName)) {
+      const team = killerTeam(ev);
+      if (team && GOLD.EPIC.GRUB) shareTeam(team, "epics", GOLD.EPIC.GRUB * (sizeByTeam[team] || 5));
     }
   }
   const active = buffs.filter(b => b.endsAt > gameTime).sort((a, b) => b.endsAt - a.endsAt)[0];
@@ -202,7 +284,7 @@ function computeStats(d, memo = {}) {
     t.assists += s.assists || 0;
     t.cs += s.creepScore || 0;
 
-    const model = r.base + r.cs + r.kills + r.assists + r.towers + r.plates;
+    const model = r.base + r.cs + r.kills + r.assists + r.towers + r.plates + r.epics;
     const id = pid(r.p);
     const floor = itemGold(r.p.items) - model; // si es > 0, el modelo se quedo corto
     if (floor > (memo.bias[id] || 0)) memo.bias[id] = floor;
@@ -212,6 +294,7 @@ function computeStats(d, memo = {}) {
     const g = t.goldParts;
     g.base += r.base; g.cs += r.cs; g.kills += r.kills; g.assists += r.assists;
     g.towers += r.towers; g.plates += r.plates; g.items += bias;
+    g.epics += r.epics;
   }
   for (const t of Object.values(teams)) {
     t.gold = Math.round(t.gold);
@@ -230,6 +313,7 @@ function computeStats(d, memo = {}) {
     buff: active
       ? { type: active.type, team: active.team, remaining: Math.ceil(active.endsAt - gameTime), duration: BUFF_SECONDS[active.type] }
       : null,
+    objectives: computeObjectives(events, gameTime, killerTeam),
   };
 }
 
@@ -272,6 +356,7 @@ function startInGame(publisher, opts = {}) {
         if (state === "in") log("[InGame] Partida terminada.");
         state = "out";
         memo.bias = {}; memo.last = null;
+        seenEvents.clear(); // vuelve a registrar los eventos en la siguiente partida
         publisher.publish(STATS_PATH, null);
       }
     }
