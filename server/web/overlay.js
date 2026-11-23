@@ -302,15 +302,23 @@ function UpdatePick(i, teamid, team, inProgress) {
             champ = member.championId > 0 ? championsById[member.championId] : null;
         }
 
-        var splashArtTransform = null;
+       var splashArtTransform = null;
         if (champ && _S.lolChampionData && _S.lolChampionData.splash && _S.lolChampionData.splash.horizontal) {
             splashArtTransform = _S.lolChampionData.splash.horizontal[champ.id] || _S.lolChampionData.splash.horizontal["Ahri"];
         }
 
+        // Banner personalizado mientras el jugador elige y aún no hay campeón
+        var bannerRaw = teamid == 1 ? adminData().leftPickBanner : adminData().rightPickBanner;
+        var bannerFile = (bannerRaw || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+        var showBanner = inProgressAction && champ == null && bannerFile !== "";
+        slot.bannerImage = showBanner
+            ? "url(assets/champselectbanner/" + encodeURIComponent(bannerFile) + ")"
+            : "none";
+
         slot.flex = inProgressAction ? "3" : null;
         slot.style = {
             opacity: inProgressAction ? 0.8 : 1,
-            backgroundColor: inProgressAction && champ == null ? (member.team == 1 ? "var(--team-left-color)" : "var(--team-right-color)") : null,
+            backgroundColor: inProgressAction && champ == null && !showBanner ? (member.team == 1 ? "var(--team-left-color)" : "var(--team-right-color)") : null,
             backgroundImage: champ == null ? null : "url(" + GenerateSplashArtUrl(champ.id) + ")",
             transform: splashArtTransform ? splashArtTransform.transform : null,
             backgroundPositionX: splashArtTransform ? splashArtTransform.backgroundPositionX : null,
