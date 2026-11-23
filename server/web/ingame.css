@@ -187,3 +187,31 @@ html, body {
 .obj[data-state="alive"] svg { fill: var(--gold); opacity: 1; }
 .obj[data-state="alive"] .otime { color: var(--gold); text-shadow: 0 0 8px rgba(230, 194, 107, .6); }
 .obj[data-state="done"] { opacity: .35; }
+
+/* ---------- Contadores extra junto a los dragones ---------- */
+.oc { display: inline-flex; align-items: center; gap: 3px; font-size: 15px; line-height: 15px; color: #d7dcea; margin-left: 4px; }
+.oc i { font-style: normal; font-size: 11px; letter-spacing: 1px; color: #aab4c8; }
+.oc.herald i { color: #c9a7ff; }
+.oc.baron i { color: #e08cff; }
+.oc.grub i { color: #9be37d; }
+
+/* ---------- Aviso de objetivo tomado ---------- */
+#toast {
+  position: absolute;
+  top: calc(100px * var(--scale));
+  left: 50%;
+  transform: translate(-50%, -14px) scale(var(--scale));
+  transform-origin: top center;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 22px 6px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--tc, #888);
+  border-radius: 8px;
+  font-size: 24px; letter-spacing: 1px; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity .35s, transform .35s;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0) scale(var(--scale)); }
+#toast .tdot { width: 14px; height: 14px; border-radius: 50%; background: var(--tc, #888); box-shadow: 0 0 10px var(--tc, #888); }
+#toast .ttext b { font-weight: normal; color: var(--tc, #fff); }
