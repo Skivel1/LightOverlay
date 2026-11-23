@@ -53,14 +53,25 @@
         <div class="ban"></div>
     </div>
 
-    <div class="banner-config">
+<div class="banner-config">
         <div class="banner-row">
             <span>Banner izquierdo:</span>
-            <p contenteditable="true" bind="{attribute=innerHTML path=admin/leftPickBanner out=input}"></p>
+            <p id="leftBannerInput" contenteditable="true" bind="{attribute=innerHTML path=admin/leftPickBanner out=input}"></p>
         </div>
         <div class="banner-row">
             <span>Banner derecho:</span>
-            <p contenteditable="true" bind="{attribute=innerHTML path=admin/rightPickBanner out=input}"></p>
+            <p id="rightBannerInput" contenteditable="true" bind="{attribute=innerHTML path=admin/rightPickBanner out=input}"></p>
+        </div>
+
+        <div class="banner-previews">
+            <div class="banner-preview-box">
+                <span class="banner-preview-label">Vista previa izquierda</span>
+                <div id="leftBannerPreview" class="banner-preview"><span class="banner-preview-msg">Sin banner</span></div>
+            </div>
+            <div class="banner-preview-box">
+                <span class="banner-preview-label">Vista previa derecha</span>
+                <div id="rightBannerPreview" class="banner-preview"><span class="banner-preview-msg">Sin banner</span></div>
+            </div>
         </div>
     </div>
 
