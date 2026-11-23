@@ -175,3 +175,39 @@ body {
     white-space: nowrap;
     overflow: hidden;
 }
+/* ===== Vista previa de banners ===== */
+.banner-previews{
+    display: flex;
+    gap: 20px;
+    margin-top: 14px;
+}
+.banner-preview-box{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.banner-preview-label{
+    font-size: 20px;
+    opacity: 0.75;
+}
+.banner-preview{
+    position: relative;
+    width: 100%;
+    aspect-ratio: 489 / 215;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border: 2px solid #ffffff40;
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.banner-preview-msg{
+    font-size: 18px;
+    text-align: center;
+    padding: 0 10px;
+    text-shadow: 0 1px 3px #000;
+}
