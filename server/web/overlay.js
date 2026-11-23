@@ -308,12 +308,12 @@ function UpdatePick(i, teamid, team, inProgress) {
         }
 
         // Banner personalizado mientras el jugador elige y aún no hay campeón
-        var bannerRaw = teamid == 1 ? adminData().leftPickBanner : adminData().rightPickBanner;
-        var bannerFile = (bannerRaw || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-        var showBanner = inProgressAction && champ == null && bannerFile !== "";
-        slot.bannerImage = showBanner
-            ? "url(assets/champselectbanner/" + encodeURIComponent(bannerFile) + ")"
-            : "none";
+var bannerRaw = teamid == 1 ? adminData().leftPickBanner : adminData().rightPickBanner;
+var bannerFile = (bannerRaw || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+var showBanner = inProgressAction && champ == null && bannerFile !== "";
+slot.bannerImage = showBanner
+    ? "url(assets/champselectbanner/" + encodeURIComponent(bannerFile) + ")"
+    : "none";
 
         slot.flex = inProgressAction ? "3" : null;
         slot.style = {
