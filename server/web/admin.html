@@ -53,6 +53,17 @@
         <div class="ban"></div>
     </div>
 
+    <div class="banner-config">
+        <div class="banner-row">
+            <span>Banner izquierdo:</span>
+            <p contenteditable="true" bind="{attribute=innerHTML path=admin/leftPickBanner out=input}"></p>
+        </div>
+        <div class="banner-row">
+            <span>Banner derecho:</span>
+            <p contenteditable="true" bind="{attribute=innerHTML path=admin/rightPickBanner out=input}"></p>
+        </div>
+    </div>
+
     <div id="templates" style="display: none" >
         <div class="pick after-initial">
             <div class="pick-text">
@@ -68,12 +79,12 @@
                 <p class="pick-champ"></p>
                 <p class="pick-player"></p>
             </div>
-                <div class="display"></div>
+            <div class="display"></div>
         </div>
-    
+
         <div class="teaminfo teaminfo-{side}">
             <div class="logo">
-                <p class="team-{side}-color" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamColor out=input"></p>
+                <p class="team-{side}-color" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamColor out=input}"></p>
                 <img bind="{attribute=src path=admin/{side}TeamIcon in=teamLogoConverter}"/>
                 <p class="team-{side}-icon-fn" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamIcon out=input}"></p>
             </div>
