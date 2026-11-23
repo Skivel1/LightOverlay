@@ -11,6 +11,8 @@
   --right: rgb(89, 140, 245);
   --panel: linear-gradient(180deg, rgba(9, 14, 27, .96) 0%, rgba(20, 31, 52, .96) 100%);
   --line: rgba(255, 255, 255, .14);
+  --gold: #e6c26b;
+  --scale: 1.15;              /* tamaño general del overlay (1 = original) */
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -24,7 +26,7 @@ html, body {
   color: #fff;
 }
 
-#stage { position: absolute; top: 0; left: 0; width: 1920px; height: 130px; opacity: 0; transition: opacity .6s; }
+#stage { position: absolute; top: 0; left: 0; width: 1920px; height: 160px; opacity: 0; transition: opacity .6s; }
 #stage.live { opacity: 1; }
 
 /* ---------- Barra principal ---------- */
@@ -32,7 +34,8 @@ html, body {
   position: absolute;
   left: 50%;
   top: 0;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--scale));
+  transform-origin: top center;
   height: 60px;
   display: flex;
   align-items: stretch;
@@ -61,7 +64,16 @@ html, body {
 .stat b { font-weight: normal; }
 .stat.towers { width: 70px; flex: 0 0 70px; justify-content: center; }
 .stat.gold { width: 168px; flex: 0 0 168px; justify-content: center; }
-.stat.gold svg { fill: #e6c26b; }
+.stat.gold svg { fill: var(--gold); }
+
+/* Oro: destello cada vez que sube 100 */
+.stat.gold b { display: inline-block; transform-origin: center; }
+.stat.gold b.bump { animation: goldBump .45s ease-out; }
+@keyframes goldBump {
+  0%   { transform: scale(1);    color: #fff; }
+  35%  { transform: scale(1.18); color: var(--gold); text-shadow: 0 0 10px rgba(230, 194, 107, .8); }
+  100% { transform: scale(1);    color: #fff; text-shadow: none; }
+}
 
 .lead { font-style: normal; font-size: 17px; color: #7be08a; width: 50px; text-align: left; visibility: hidden; }
 .lead.show { visibility: visible; }
@@ -69,14 +81,15 @@ html, body {
 .kills { width: 66px; flex: 0 0 66px; text-align: center; font-size: 46px; color: var(--c); text-shadow: 0 0 10px color-mix(in srgb, var(--c) 55%, transparent); }
 
 .center { width: 52px; display: flex; align-items: center; justify-content: center; }
-.center svg { width: 30px; height: 30px; fill: #e6c26b; }
+.center svg { width: 30px; height: 30px; fill: var(--gold); }
 
 /* ---------- Reloj y dragones ---------- */
 #under {
   position: absolute;
   left: 50%;
-  top: 62px;
-  transform: translateX(-50%);
+  top: calc(62px * var(--scale));          /* sigue pegado a la barra escalada */
+  transform: translateX(-50%) scale(var(--scale));
+  transform-origin: top center;
   width: 932px;
   height: 30px;
   display: flex;
@@ -109,25 +122,68 @@ html, body {
 .dr.chemtech { background: #6fcf5b; }
 .dr.elder { background: #b160e8; border-radius: 3px; transform: rotate(45deg); }
 
-/* ---------- Panel de buff ---------- */
+/* ---------- Panel de buff (derecha) ---------- */
 #buff {
   position: absolute;
   top: 0;
-  right: 60px;
-  width: 380px;
+  right: 16px;
+  width: 340px;
   height: 60px;
   background: var(--panel);
   border-bottom: 2px solid var(--line);
   border-radius: 0 0 12px 12px;
   overflow: hidden;
   opacity: 0;
-  transform: translateY(-20px);
+  transform-origin: top right;
+  transform: translateY(-20px) scale(var(--scale));
   transition: opacity .5s, transform .5s;
 }
-#buff.show { opacity: 1; transform: translateY(0); }
+#buff.show { opacity: 1; transform: translateY(0) scale(var(--scale)); }
 
 .btitle { height: 28px; line-height: 28px; text-align: center; font-size: 22px; letter-spacing: 2px; background: var(--bc, #444); }
 .brow { height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 20px; }
 .bar { flex: 1; height: 5px; background: rgba(255, 255, 255, .18); border-radius: 3px; overflow: hidden; }
 #bfill { height: 100%; width: 0%; background: #fff; transition: width 1s linear; }
-#blead { min-width: 110px; text-align: right; color: #7be08a; }
+#blead { min-width: 100px; text-align: right; color: #7be08a; }
+
+/* ---------- Timers de objetivos (izquierda) ---------- */
+#objectives {
+  position: absolute;
+  top: 0;
+  left: 16px;
+  width: 340px;
+  height: 60px;
+  display: flex;
+  background: var(--panel);
+  border-bottom: 2px solid var(--line);
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+  opacity: 0;
+  transform-origin: top left;
+  transform: translateY(-20px) scale(var(--scale));
+  transition: opacity .5s, transform .5s;
+}
+#objectives.show { opacity: 1; transform: translateY(0) scale(var(--scale)); }
+
+.obj {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  column-gap: 5px;
+  padding: 4px 6px 4px 8px;
+  border-left: 1px solid var(--line);
+  border-bottom: 3px solid var(--oc, transparent); /* color del equipo con alma (Elder) */
+  transition: opacity .4s, background .4s;
+}
+.obj:first-child { border-left: none; }
+.obj svg { grid-row: 1 / 3; width: 20px; height: 20px; fill: #d7dcea; opacity: .85; }
+.oname { font-size: 13px; letter-spacing: 1px; color: #aab4c8; white-space: nowrap; overflow: hidden; align-self: end; }
+.otime { font-size: 22px; line-height: 1; align-self: start; font-variant-numeric: tabular-nums; }
+
+/* Estados */
+.obj[data-state="alive"] { background: rgba(230, 194, 107, .12); }
+.obj[data-state="alive"] svg { fill: var(--gold); opacity: 1; }
+.obj[data-state="alive"] .otime { color: var(--gold); text-shadow: 0 0 8px rgba(230, 194, 107, .6); }
+.obj[data-state="done"] { opacity: .35; }
