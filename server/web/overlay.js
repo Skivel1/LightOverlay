@@ -307,13 +307,22 @@ function UpdatePick(i, teamid, team, inProgress) {
             splashArtTransform = _S.lolChampionData.splash.horizontal[champ.id] || _S.lolChampionData.splash.horizontal["Ahri"];
         }
 
-        // Banner personalizado mientras el jugador elige y aún no hay campeón
-var bannerRaw = teamid == 1 ? adminData().leftPickBanner : adminData().rightPickBanner;
-var bannerFile = (bannerRaw || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
-var showBanner = inProgressAction && champ == null && bannerFile !== "";
-slot.bannerImage = showBanner
-    ? "url(assets/champselectbanner/" + encodeURIComponent(bannerFile) + ")"
-    : "none";
+// Banner personalizado mientras el jugador elige y aún no hay campeón
+        var bannerRaw = teamid == 1 ? adminData().leftPickBanner : adminData().rightPickBanner;
+        var bannerFile = (bannerRaw || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+
+        // Precarga: descarga la imagen una sola vez en cuanto se define el nombre
+        window._bannerPreload = window._bannerPreload || {};
+        if (bannerFile && !window._bannerPreload[bannerFile]) {
+            var pre = new Image();
+            pre.src = "assets/champselectbanner/" + encodeURIComponent(bannerFile);
+            window._bannerPreload[bannerFile] = pre;
+        }
+
+        var showBanner = inProgressAction && champ == null && bannerFile !== "";
+        slot.bannerImage = showBanner
+            ? "url(assets/champselectbanner/" + encodeURIComponent(bannerFile) + ")"
+            : "none";
 
         slot.flex = inProgressAction ? "3" : null;
         slot.style = {
@@ -508,13 +517,6 @@ function CreateSlot() {
 
     return _this;
 }
-
-window._bannerPreload = window._bannerPreload || {};
-        if (bannerFile && !window._bannerPreload[bannerFile]) {
-            var pre = new Image();
-            pre.src = "assets/champselectbanner/" + encodeURIComponent(bannerFile);
-            window._bannerPreload[bannerFile] = pre;
-        }
 
 function Main() {
     for (var i = 0; i < 5; i++) {
