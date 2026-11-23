@@ -105,6 +105,59 @@
     </div>
     <script src="state.js"></script>
     <script src="admin.js"></script>
+    <script>
+    (function () {
+        function cleanName(el) {
+            return (el ? el.textContent : "").replace(/\u00a0/g, " ").trim();
+        }
+
+        function setupPreview(inputId, previewId, teamColorVar) {
+            var input = document.getElementById(inputId);
+            var preview = document.getElementById(previewId);
+            var msg = preview.querySelector(".banner-preview-msg");
+            var lastName = null;
+
+            function update() {
+                var name = cleanName(input);
+                if (name === lastName) return;
+                lastName = name;
+
+                if (!name) {
+                    preview.style.backgroundImage = "none";
+                    preview.style.backgroundColor = "var(" + teamColorVar + ")";
+                    msg.textContent = "Sin banner (se usará el color del equipo)";
+                    msg.style.display = "";
+                    return;
+                }
+
+                var url = "assets/champselectbanner/" + encodeURIComponent(name);
+                var test = new Image();
+                test.onload = function () {
+                    if (cleanName(input) !== name) return;
+                    preview.style.backgroundColor = "transparent";
+                    preview.style.backgroundImage = "url(" + url + ")";
+                    msg.style.display = "none";
+                };
+                test.onerror = function () {
+                    if (cleanName(input) !== name) return;
+                    preview.style.backgroundImage = "none";
+                    preview.style.backgroundColor = "#5a1a1a";
+                    msg.textContent = "No se encontró: " + name;
+                    msg.style.display = "";
+                };
+                test.src = url;
+            }
+
+            // Al escribir y también cuando el valor llega del servidor al cargar
+            input.addEventListener("input", update);
+            setInterval(update, 500);
+            update();
+        }
+
+        setupPreview("leftBannerInput", "leftBannerPreview", "--team-left-color");
+        setupPreview("rightBannerInput", "rightBannerPreview", "--team-right-color");
+    })();
+    </script>
 </body>
 
 </html>
