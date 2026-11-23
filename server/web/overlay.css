@@ -682,3 +682,13 @@ body *{
   width: auto;
   white-space: nowrap;
 }
+
+.pick{ position: relative; overflow: hidden; }
+.pick .banner{
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
