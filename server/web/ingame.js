@@ -15,6 +15,9 @@
   var S = {};
   var $ = function (id) { return document.getElementById(id); };
 
+  // Ultimo oro mostrado (en centenas) por lado, para animar solo cuando sube.
+  var lastGoldStep = { L: null, R: null };
+
   function getPath(path) {
     var cur = S;
     var segs = path.split("/");
@@ -70,9 +73,20 @@
     return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
   }
 
-  function fmtGold(n) {
-    n = Math.round(n || 0);
-    return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  // Timer corto para objetivos: 4:05
+  function fmtTimer(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var sec = s % 60;
+    return Math.floor(s / 60) + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  // Oro en escalones exactos de 100 (12,380 -> 12.3k; 950 -> 900)
+  function goldStep(n) {
+    return Math.floor(Math.max(0, n || 0) / 100);
+  }
+  function fmtGoldStep(step) {
+    var n = step * 100;
+    return n >= 1000 ? (step / 10).toFixed(1) + "k" : String(n);
   }
 
   function fmtLead(n) {
@@ -83,11 +97,30 @@
     return c && typeof c === "string" ? c : fallback;
   }
 
+  // Actualiza el oro de un lado; anima solo si subio al menos 100.
+  function setGold(side, gold) {
+    var el = $("gold" + side);
+    var step = goldStep(gold);
+    var prev = lastGoldStep[side];
+    if (prev === step) return;
+    el.textContent = fmtGoldStep(step);
+    if (prev != null && step > prev) {
+      el.classList.remove("bump");
+      void el.offsetWidth; // reinicia la animacion
+      el.classList.add("bump");
+    }
+    lastGoldStep[side] = step;
+  }
+
   function render() {
     var stats = getPath("lolInGame/stats");
     var stage = $("stage");
     stage.classList.toggle("live", !!stats && !!stats.teams);
-    if (!stats || !stats.teams) return;
+    if (!stats || !stats.teams) {
+      lastGoldStep.L = lastGoldStep.R = null; // nueva partida: sin animacion inicial
+      renderObjectives(null);
+      return;
+    }
 
     var admin = getPath("lolChampSelect/admin") || {};
     var localTeam = stats.localTeam === "CHAOS" ? "CHAOS" : "ORDER";
@@ -112,8 +145,8 @@
     $("killsR").textContent = R.kills;
     $("towersL").textContent = L.towers;
     $("towersR").textContent = R.towers;
-    $("goldL").textContent = fmtGold(L.gold);
-    $("goldR").textContent = fmtGold(R.gold);
+    setGold("L", L.gold);
+    setGold("R", R.gold);
     $("clock").textContent = fmtTime(stats.time);
 
     // Ventaja de oro (positiva = ORDER)
@@ -143,6 +176,46 @@
       var tag = (leaderLeft ? admin.leftTeamName : admin.rightTeamName) || "";
       $("blead").textContent = diff > 0 ? fmtLead(diff) + " " + tag : "";
     }
+
+    // Timers de objetivos
+    renderObjectives(stats.objectives, leftKey);
+  }
+
+  function renderObjectives(o, leftKey) {
+    var panel = $("objectives");
+    if (!panel) return;
+    panel.classList.toggle("show", !!o);
+    if (!o) return;
+
+    ["dragon", "grubs", "herald", "baron"].forEach(function (k) {
+      var row = $("obj-" + k), t = o[k];
+      if (!row || !t) return;
+      row.setAttribute("data-state", t.state);
+
+      // Nombre de la fila
+      var name = row.querySelector(".oname");
+      if (name) {
+        var label = { dragon: "DRAGÓN", grubs: "LARVAS", herald: "HERALDO", baron: "BARÓN" }[k];
+        if (k === "dragon" && t.kind === "ELDER") label = "ELDER";
+        if (k === "grubs" && t.total) label += " " + (t.taken || 0) + "/" + t.total;
+        if (name.textContent !== label) name.textContent = label;
+      }
+
+      // Color del equipo con alma (para el Elder)
+      if (k === "dragon") {
+        row.style.setProperty("--oc", t.soulTeam
+          ? (t.soulTeam === leftKey ? "var(--left)" : "var(--right)")
+          : "");
+      }
+
+      // Tiempo
+      var time = row.querySelector(".otime");
+      if (time) {
+        time.textContent = t.state === "alive" ? "VIVO"
+          : t.state === "done" ? "—"
+          : fmtTimer(t.remaining);
+      }
+    });
   }
 
   function setLogo(img, file) {
