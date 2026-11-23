@@ -105,8 +105,10 @@
     </div>
     <script src="state.js"></script>
     <script src="admin.js"></script>
-    <script>
+<script>
     (function () {
+        var cache = {}; // nombre -> "ok" | "error"
+
         function cleanName(el) {
             return (el ? el.textContent : "").replace(/\u00a0/g, " ").trim();
         }
@@ -116,6 +118,21 @@
             var preview = document.getElementById(previewId);
             var msg = preview.querySelector(".banner-preview-msg");
             var lastName = null;
+            var timer = null;
+
+            function show(name, state) {
+                if (cleanName(input) !== name) return;
+                if (state === "ok") {
+                    preview.style.backgroundColor = "transparent";
+                    preview.style.backgroundImage = "url(assets/champselectbanner/" + encodeURIComponent(name) + ")";
+                    msg.style.display = "none";
+                } else {
+                    preview.style.backgroundImage = "none";
+                    preview.style.backgroundColor = "#5a1a1a";
+                    msg.textContent = "No se encontró: " + name;
+                    msg.style.display = "";
+                }
+            }
 
             function update() {
                 var name = cleanName(input);
@@ -130,28 +147,25 @@
                     return;
                 }
 
-                var url = "assets/champselectbanner/" + encodeURIComponent(name);
-                var test = new Image();
-                test.onload = function () {
-                    if (cleanName(input) !== name) return;
-                    preview.style.backgroundColor = "transparent";
-                    preview.style.backgroundImage = "url(" + url + ")";
-                    msg.style.display = "none";
-                };
-                test.onerror = function () {
-                    if (cleanName(input) !== name) return;
-                    preview.style.backgroundImage = "none";
-                    preview.style.backgroundColor = "#5a1a1a";
-                    msg.textContent = "No se encontró: " + name;
-                    msg.style.display = "";
-                };
-                test.src = url;
+                if (cache[name]) { show(name, cache[name]); return; }
+
+                msg.textContent = "Cargando...";
+                msg.style.display = "";
+                var img = new Image();
+                img.decoding = "async";
+                img.onload = function () { cache[name] = "ok"; show(name, "ok"); };
+                img.onerror = function () { cache[name] = "error"; show(name, "error"); };
+                img.src = "assets/champselectbanner/" + encodeURIComponent(name);
             }
 
-            // Al escribir y también cuando el valor llega del servidor al cargar
-            input.addEventListener("input", update);
-            setInterval(update, 500);
-            update();
+            function debounced() {
+                clearTimeout(timer);
+                timer = setTimeout(update, 600);
+            }
+
+            input.addEventListener("input", debounced);
+            setTimeout(update, 800);    // valor inicial que llega del servidor
+            setInterval(update, 2000);  // por si lo cambian desde otra pestaña (solo lee texto)
         }
 
         setupPreview("leftBannerInput", "leftBannerPreview", "--team-left-color");
