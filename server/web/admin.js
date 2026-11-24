@@ -1,177 +1,140 @@
-<!DOCTYPE html>
-<html bind-context="{lolChampSelect/}" bind="{path=admin/leftTeamColor attribute=style.--team-left-color in=cssVariableConverter}{path=admin/rightTeamColor attribute=style.--team-right-color in=cssVariableConverter}">
+var initDone = false;
+var settingsDone = false;
 
-<head>
-    <link rel="stylesheet" type="text/css" href="overlay.css" media="screen" />
-    <link rel="stylesheet" type="text/css" href="admin.css" media="screen" />
-</head>
+function adminData() {
+    if (!_S.lolChampSelect)
+        _S.lolChampSelect = {};
+    if (!_S.lolChampSelect.admin)
+        _S.lolChampSelect.admin = {};
 
-<body >
-    <div class="header">
-      <div template="{class=teaminfo side=left}"></div>
-      <div class="phaseinfo">
-        <div class="matchinfo" contenteditable="true" bind="{attribute=innerHTML path=admin/matchInfo out=input}"></div>
-        <div class="patchinfo" contenteditable="true" bind="{attribute=innerHTML path=admin/patchInfo out=input}"></div>
-        <div class="countdown">
-            <select class="version-select" bind="{attribute=value path=admin/version out=change}"></select>
-        </div>
-        <div class="phase-title"></div>
-        <div class="flex-spacer"></div>
-      </div>
-      <div template="{class=teaminfo side=right}"></div>
-    </div>
+    return _S.lolChampSelect.admin;
+}
 
-    <div class="left picks top three-big">
-        <div template="{class=pick team=1 slot=0}"></div>
-        <div template="{class=pick team=1 slot=1}"></div>
-        <div template="{class=pick team=1 slot=2}"></div>
-        <div template="{class=pick team=1 slot=3}"></div>
-        <div template="{class=pick team=1 slot=4}"></div>
-    </div>
+//#region Socket
+function SendMessage(type, content, path) {
+    if (!socket || socket.readyState !== WebSocket.OPEN)
+        return;
 
-    <div class="right picks top three-big">
-        <div template="{class=pick team=2 slot=0}"></div>
-        <div template="{class=pick team=2 slot=1}"></div>
-        <div template="{class=pick team=2 slot=2}"></div>
-        <div template="{class=pick team=2 slot=3}"></div>
-        <div template="{class=pick team=2 slot=4}"></div>
-    </div>
+    var message = {
+        Type: type,
+        Content: type === "Update" ? JSON.stringify(content) : content,
+        Path: path
+    };
+    socket.send(JSON.stringify(message));
+}
 
-    <div class="left bans gone">
-        <div class="ban"></div>
-        <div class="ban"></div>
-        <div class="ban"></div>
-        <div class="ban"></div>
-        <div class="ban"></div>
-    </div>
+// Connection opened
+socket.addEventListener("open", function () {
+    SendMessage("Subscribe", "lolChampionData");
+});
 
-    <div class="right bans gone">
-        <div class="ban"></div>
-        <div class="ban"></div>
-        <div class="ban"></div>
-        <div class="ban"></div>
-        <div class="ban"></div>
-    </div>
+// Listen for messages
+socket.addEventListener("message", function (event) {
+    var message;
+    try {
+        message = JSON.parse(event.data);
+    } catch (err) {
+        console.warn("[AdminSocket] Invalid JSON:", err);
+        return;
+    }
 
-<div class="banner-config">
-        <div class="banner-row">
-            <span>Banner izquierdo:</span>
-            <p id="leftBannerInput" contenteditable="true" bind="{attribute=innerHTML path=admin/leftPickBanner out=input}"></p>
-        </div>
-        <div class="banner-row">
-            <span>Banner derecho:</span>
-            <p id="rightBannerInput" contenteditable="true" bind="{attribute=innerHTML path=admin/rightPickBanner out=input}"></p>
-        </div>
+    console.log(message.Path);
 
-        <div class="banner-previews">
-            <div class="banner-preview-box">
-                <span class="banner-preview-label">Vista previa izquierda</span>
-                <div id="leftBannerPreview" class="banner-preview"><span class="banner-preview-msg">Sin banner</span></div>
-            </div>
-            <div class="banner-preview-box">
-                <span class="banner-preview-label">Vista previa derecha</span>
-                <div id="rightBannerPreview" class="banner-preview"><span class="banner-preview-msg">Sin banner</span></div>
-            </div>
-        </div>
-    </div>
+    if (message.Type == "Update") {
+        StateOnUpdate(message);
 
-    <div id="templates" style="display: none" >
-        <div class="pick after-initial">
-            <div class="pick-text">
-                <select class="role-select" aria-label="Posición del jugador" bind="{attribute=value path=admin/positions/{team}/{slot} out=change}">
-                    <option value="top">Toplane</option>
-                    <option value="bottom">Botlane</option>
-                    <option value="jungle">Jungle</option>
-                    <option value="middle">Midlane</option>
-                    <option value="utility">Support</option>
-                    <option value="auto">Auto</option>
-                </select>
-
-                <p class="pick-champ"></p>
-                <p class="pick-player"></p>
-            </div>
-            <div class="display"></div>
-        </div>
-
-        <div class="teaminfo teaminfo-{side}">
-            <div class="logo">
-                <p class="team-{side}-color" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamColor out=input}"></p>
-                <img bind="{attribute=src path=admin/{side}TeamIcon in=teamLogoConverter}"/>
-                <p class="team-{side}-icon-fn" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamIcon out=input}"></p>
-            </div>
-            <div class="name"><div class="spacer33"></div><p contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamName out=input}"></p></div>
-            <div class="score"><div class="spacer33"></div><p contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamScore out=input}"></p></div>
-        </div>
-    </div>
-    <script src="state.js"></script>
-    <script src="admin.js"></script>
-<script>
-    (function () {
-        var cache = {}; // nombre -> "ok" | "error"
-
-        function cleanName(el) {
-            return (el ? el.textContent : "").replace(/\u00a0/g, " ").trim();
+        if (!initDone && message.Path == "lolChampionData") {
+            Main();
         }
 
-        function setupPreview(inputId, previewId, teamColorVar) {
-            var input = document.getElementById(inputId);
-            var preview = document.getElementById(previewId);
-            var msg = preview.querySelector(".banner-preview-msg");
-            var lastName = null;
-            var timer = null;
+        if (!settingsDone && message.Path == "lolChampSelect/admin") {
+            settingsDone = true;
 
-            function show(name, state) {
-                if (cleanName(input) !== name) return;
-                if (state === "ok") {
-                    preview.style.backgroundColor = "transparent";
-                    preview.style.backgroundImage = "url(assets/champselectbanner/" + encodeURIComponent(name) + ")";
-                    msg.style.display = "none";
-                } else {
-                    preview.style.backgroundImage = "none";
-                    preview.style.backgroundColor = "#5a1a1a";
-                    msg.textContent = "No se encontró: " + name;
-                    msg.style.display = "";
-                }
+            fetch("https://ddragon.leagueoflegends.com/api/versions.json")
+                .then(res => res.json())
+                .then((out) => {
+                    if (!Array.isArray(out) || out.length === 0)
+                        return;
+
+                    var lastSix = out.slice(0, 6);
+                    var versionSelector = document.getElementsByClassName("version-select")[0];
+                    if (!versionSelector)
+                        return;
+
+                    versionSelector.innerHTML = "";
+                    for (const version of lastSix) {
+                        var opt = document.createElement("option");
+                        opt.value = version;
+                        opt.innerHTML = version;
+                        versionSelector.appendChild(opt);
+                    }
+
+                    if (!adminData().version) {
+                        adminData().version = lastSix[0];
+                    }
+
+                    versionSelector.value = adminData().version;
+                    versionSelector.addEventListener("change", function () {
+                        adminData().version = versionSelector.value;
+                        SendMessage("Update", adminData(), "lolChampSelect/admin");
+                    });
+                })
+                .catch(err => console.warn("[Admin] Failed to load LoL versions:", err));
+
+            var el = document.getElementsByClassName("pick")[0];
+            if (el) {
+                var enableMove = false;
+                el.style.backgroundImage = 'url("/assets/cdragon/img/champion/centered/Ahri_0.jpg")';
+                el.style.backgroundPositionX = "0px";
+                el.style.backgroundPositionY = "0px";
+
+                var xstart = 0;
+                var ystart = 0;
+                var xback = 0;
+                var yback = 0;
+
+                el.addEventListener("mousedown", (e) => {
+                    xstart = e.clientX;
+                    ystart = e.clientY;
+                    xback = parseInt(el.style.backgroundPositionX, 10) || 0;
+                    yback = parseInt(el.style.backgroundPositionY, 10) || 0;
+                    enableMove = true;
+                });
+
+                el.addEventListener("mousemove", (e) => {
+                    if (!enableMove)
+                        return;
+
+                    var xdiff = e.clientX - xstart;
+                    var ydiff = e.clientY - ystart;
+
+                    el.style.backgroundPositionX = (xback + xdiff) + "px";
+                    el.style.backgroundPositionY = (yback + ydiff) + "px";
+                });
+
+                el.addEventListener("mouseout", () => {
+                    enableMove = false;
+                });
+
+                el.addEventListener("mouseup", () => {
+                    enableMove = false;
+                });
             }
-
-            function update() {
-                var name = cleanName(input);
-                if (name === lastName) return;
-                lastName = name;
-
-                if (!name) {
-                    preview.style.backgroundImage = "none";
-                    preview.style.backgroundColor = "var(" + teamColorVar + ")";
-                    msg.textContent = "Sin banner (se usará el color del equipo)";
-                    msg.style.display = "";
-                    return;
-                }
-
-                if (cache[name]) { show(name, cache[name]); return; }
-
-                msg.textContent = "Cargando...";
-                msg.style.display = "";
-                var img = new Image();
-                img.decoding = "async";
-                img.onload = function () { cache[name] = "ok"; show(name, "ok"); };
-                img.onerror = function () { cache[name] = "error"; show(name, "error"); };
-                img.src = "assets/champselectbanner/" + encodeURIComponent(name);
-            }
-
-            function debounced() {
-                clearTimeout(timer);
-                timer = setTimeout(update, 600);
-            }
-
-            input.addEventListener("input", debounced);
-            setTimeout(update, 800);    // valor inicial que llega del servidor
-            setInterval(update, 2000);  // por si lo cambian desde otra pestaña (solo lee texto)
         }
+    }
+});
+//#endregion Socket
 
-        setupPreview("leftBannerInput", "leftBannerPreview", "--team-left-color");
-        setupPreview("rightBannerInput", "rightBannerPreview", "--team-right-color");
-    })();
-    </script>
-</body>
+function Main() {
+    SendMessage("Subscribe", "lolChampSelect/session");
+    SendMessage("Subscribe", "lolChampSelect/summoners");
+    SendMessage("Subscribe", "lolChampSelect/admin");
 
-</html>
+    initDone = true;
+}
+
+function teamLogoConverter() {
+    return defaultConverter(stringFormatConverter("assets/teams/{0}"));
+}
+
+loadBindings();
