@@ -1,140 +1,234 @@
-var initDone = false;
-var settingsDone = false;
+// Barra superior de partida. Lee "lolInGame/stats" (lo publica el agente) y los datos de equipo
+// del admin (nombre, logo, color, marcador de la serie).
+//
+// Parametros de la URL:
+//   ?token=...   token del servidor (igual que el overlay de picks y bans)
+//   ?swap=1      invierte los lados (por defecto el equipo del jugador local va a la izquierda)
 
-function adminData() {
-    if (!_S.lolChampSelect)
-        _S.lolChampSelect = {};
-    if (!_S.lolChampSelect.admin)
-        _S.lolChampSelect.admin = {};
+(function () {
+  var q = new URLSearchParams(location.search);
+  var token = q.get("token") || "";
+  var swap = q.get("swap") === "1";
+  var WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" +
+    (token ? "?token=" + encodeURIComponent(token) : "");
 
-    return _S.lolChampSelect.admin;
-}
+  var S = {};
+  var $ = function (id) { return document.getElementById(id); };
 
-//#region Socket
-function SendMessage(type, content, path) {
-    if (!socket || socket.readyState !== WebSocket.OPEN)
-        return;
+  // Ultimo oro mostrado (en centenas) por lado, para animar solo cuando sube.
+  var lastGoldStep = { L: null, R: null };
 
-    var message = {
-        Type: type,
-        Content: type === "Update" ? JSON.stringify(content) : content,
-        Path: path
+  function getPath(path) {
+    var cur = S;
+    var segs = path.split("/");
+    for (var i = 0; i < segs.length; i++) {
+      if (cur == null || typeof cur !== "object") return undefined;
+      cur = cur[segs[i]];
+    }
+    return cur;
+  }
+
+  function setPath(path, value) {
+    var segs = path.split("/");
+    var cur = S;
+    for (var i = 0; i < segs.length - 1; i++) {
+      if (cur[segs[i]] == null || typeof cur[segs[i]] !== "object") cur[segs[i]] = {};
+      cur = cur[segs[i]];
+    }
+    cur[segs[segs.length - 1]] = value;
+  }
+
+  function parse(content) {
+    if (typeof content !== "string") return content == null ? null : content;
+    try { return JSON.parse(content); } catch (e) { return content; }
+  }
+
+  function send(type, content) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ Type: type, Content: content }));
+  }
+
+  var ws = null;
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = function () {
+      send("Subscribe", "lolInGame/stats");
+      send("Subscribe", "lolChampSelect/admin");
     };
-    socket.send(JSON.stringify(message));
-}
+    ws.onmessage = function (e) {
+      var m;
+      try { m = JSON.parse(e.data); } catch (err) { return; }
+      if (m && m.Type === "Update" && m.Path) {
+        setPath(m.Path, parse(m.Content));
+        render();
+      }
+    };
+    ws.onclose = function () { setTimeout(connect, 2000); };
+    ws.onerror = function () {};
+  }
 
-// Connection opened
-socket.addEventListener("open", function () {
-    SendMessage("Subscribe", "lolChampionData");
-});
+  function fmtTime(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    var mm = (m < 10 ? "0" : "") + m, ss = (sec < 10 ? "0" : "") + sec;
+    return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
+  }
 
-// Listen for messages
-socket.addEventListener("message", function (event) {
-    var message;
-    try {
-        message = JSON.parse(event.data);
-    } catch (err) {
-        console.warn("[AdminSocket] Invalid JSON:", err);
-        return;
+  // Timer corto para objetivos: 4:05
+  function fmtTimer(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var sec = s % 60;
+    return Math.floor(s / 60) + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  // Oro en escalones exactos de 100 (12,380 -> 12.3k; 950 -> 900)
+  function goldStep(n) {
+    return Math.floor(Math.max(0, n || 0) / 100);
+  }
+  function fmtGoldStep(step) {
+    var n = step * 100;
+    return n >= 1000 ? (step / 10).toFixed(1) + "k" : String(n);
+  }
+
+  function fmtLead(n) {
+    return "+" + Math.round(n).toLocaleString("en-US");
+  }
+
+  function color(c, fallback) {
+    return c && typeof c === "string" ? c : fallback;
+  }
+
+  // Actualiza el oro de un lado; anima solo si subio al menos 100.
+  function setGold(side, gold) {
+    var el = $("gold" + side);
+    var step = goldStep(gold);
+    var prev = lastGoldStep[side];
+    if (prev === step) return;
+    el.textContent = fmtGoldStep(step);
+    if (prev != null && step > prev) {
+      el.classList.remove("bump");
+      void el.offsetWidth; // reinicia la animacion
+      el.classList.add("bump");
+    }
+    lastGoldStep[side] = step;
+  }
+
+  function render() {
+    var stats = getPath("lolInGame/stats");
+    var stage = $("stage");
+    stage.classList.toggle("live", !!stats && !!stats.teams);
+    if (!stats || !stats.teams) {
+      lastGoldStep.L = lastGoldStep.R = null; // nueva partida: sin animacion inicial
+      renderObjectives(null);
+      return;
     }
 
-    console.log(message.Path);
+    var admin = getPath("lolChampSelect/admin") || {};
+    var localTeam = stats.localTeam === "CHAOS" ? "CHAOS" : "ORDER";
+    var leftKey = swap ? (localTeam === "ORDER" ? "CHAOS" : "ORDER") : localTeam;
+    var rightKey = leftKey === "ORDER" ? "CHAOS" : "ORDER";
+    var L = stats.teams[leftKey], R = stats.teams[rightKey];
 
-    if (message.Type == "Update") {
-        StateOnUpdate(message);
+    var root = document.documentElement.style;
+    root.setProperty("--left", color(admin.leftTeamColor, "rgb(180,28,49)"));
+    root.setProperty("--right", color(admin.rightTeamColor, "rgb(89,140,245)"));
 
-        if (!initDone && message.Path == "lolChampionData") {
-            Main();
-        }
+    // Equipos
+    $("tagL").textContent = admin.leftTeamName || "";
+    $("tagR").textContent = admin.rightTeamName || "";
+    $("seriesL").textContent = admin.leftTeamScore != null && admin.leftTeamScore !== "" ? admin.leftTeamScore : "";
+    $("seriesR").textContent = admin.rightTeamScore != null && admin.rightTeamScore !== "" ? admin.rightTeamScore : "";
+    setLogo($("logoL"), admin.leftTeamIcon);
+    setLogo($("logoR"), admin.rightTeamIcon);
 
-        if (!settingsDone && message.Path == "lolChampSelect/admin") {
-            settingsDone = true;
+    // Cifras
+    $("killsL").textContent = L.kills;
+    $("killsR").textContent = R.kills;
+    $("towersL").textContent = L.towers;
+    $("towersR").textContent = R.towers;
+    setGold("L", L.gold);
+    setGold("R", R.gold);
+    $("clock").textContent = fmtTime(stats.time);
 
-            fetch("https://ddragon.leagueoflegends.com/api/versions.json")
-                .then(res => res.json())
-                .then((out) => {
-                    if (!Array.isArray(out) || out.length === 0)
-                        return;
+    // Ventaja de oro (positiva = ORDER)
+    var diffForLeft = leftKey === "ORDER" ? stats.goldDiff : -stats.goldDiff;
+    var leadL = $("leadL"), leadR = $("leadR");
+    leadL.classList.toggle("show", diffForLeft > 0);
+    leadR.classList.toggle("show", diffForLeft < 0);
+    leadL.textContent = diffForLeft > 0 ? fmtLead(diffForLeft) : "";
+    leadR.textContent = diffForLeft < 0 ? fmtLead(-diffForLeft) : "";
 
-                    var lastSix = out.slice(0, 6);
-                    var versionSelector = document.getElementsByClassName("version-select")[0];
-                    if (!versionSelector)
-                        return;
+    // Dragones
+    $("dragonsL").innerHTML = dragonDots(L.dragons);
+    $("dragonsR").innerHTML = dragonDots(R.dragons);
 
-                    versionSelector.innerHTML = "";
-                    for (const version of lastSix) {
-                        var opt = document.createElement("option");
-                        opt.value = version;
-                        opt.innerHTML = version;
-                        versionSelector.appendChild(opt);
-                    }
-
-                    if (!adminData().version) {
-                        adminData().version = lastSix[0];
-                    }
-
-                    versionSelector.value = adminData().version;
-                    versionSelector.addEventListener("change", function () {
-                        adminData().version = versionSelector.value;
-                        SendMessage("Update", adminData(), "lolChampSelect/admin");
-                    });
-                })
-                .catch(err => console.warn("[Admin] Failed to load LoL versions:", err));
-
-            var el = document.getElementsByClassName("pick")[0];
-            if (el) {
-                var enableMove = false;
-                el.style.backgroundImage = 'url("/assets/cdragon/img/champion/centered/Ahri_0.jpg")';
-                el.style.backgroundPositionX = "0px";
-                el.style.backgroundPositionY = "0px";
-
-                var xstart = 0;
-                var ystart = 0;
-                var xback = 0;
-                var yback = 0;
-
-                el.addEventListener("mousedown", (e) => {
-                    xstart = e.clientX;
-                    ystart = e.clientY;
-                    xback = parseInt(el.style.backgroundPositionX, 10) || 0;
-                    yback = parseInt(el.style.backgroundPositionY, 10) || 0;
-                    enableMove = true;
-                });
-
-                el.addEventListener("mousemove", (e) => {
-                    if (!enableMove)
-                        return;
-
-                    var xdiff = e.clientX - xstart;
-                    var ydiff = e.clientY - ystart;
-
-                    el.style.backgroundPositionX = (xback + xdiff) + "px";
-                    el.style.backgroundPositionY = (yback + ydiff) + "px";
-                });
-
-                el.addEventListener("mouseout", () => {
-                    enableMove = false;
-                });
-
-                el.addEventListener("mouseup", () => {
-                    enableMove = false;
-                });
-            }
-        }
+    // Buff
+    var buff = stats.buff;
+    var panel = $("buff");
+    panel.classList.toggle("show", !!buff);
+    if (buff) {
+      var holderLeft = buff.team === leftKey;
+      panel.style.setProperty("--bc", holderLeft ? "var(--left)" : "var(--right)");
+      $("btitle").textContent = (buff.type === "ELDER" ? "ELDER" : "BARON") + " BUFF";
+      $("btime").textContent = fmtTime(buff.remaining);
+      $("bfill").style.width = Math.max(0, Math.min(100, (buff.remaining / buff.duration) * 100)) + "%";
+      var diff = Math.abs(stats.goldDiff);
+      var leaderLeft = diffForLeft >= 0;
+      var tag = (leaderLeft ? admin.leftTeamName : admin.rightTeamName) || "";
+      $("blead").textContent = diff > 0 ? fmtLead(diff) + " " + tag : "";
     }
-});
-//#endregion Socket
 
-function Main() {
-    SendMessage("Subscribe", "lolChampSelect/session");
-    SendMessage("Subscribe", "lolChampSelect/summoners");
-    SendMessage("Subscribe", "lolChampSelect/admin");
+    // Timers de objetivos
+    renderObjectives(stats.objectives, leftKey);
+  }
 
-    initDone = true;
-}
+  function renderObjectives(o, leftKey) {
+    var panel = $("objectives");
+    if (!panel) return;
+    panel.classList.toggle("show", !!o);
+    if (!o) return;
 
-function teamLogoConverter() {
-    return defaultConverter(stringFormatConverter("assets/teams/{0}"));
-}
+    ["dragon", "grubs", "herald", "baron"].forEach(function (k) {
+      var row = $("obj-" + k), t = o[k];
+      if (!row || !t) return;
+      row.setAttribute("data-state", t.state);
 
-loadBindings();
+      // Nombre de la fila
+      var name = row.querySelector(".oname");
+      if (name) {
+        var label = { dragon: "DRAGÓN", grubs: "LARVAS", herald: "HERALDO", baron: "BARÓN" }[k];
+        if (k === "dragon" && t.kind === "ELDER") label = "ELDER";
+        if (k === "grubs" && t.total) label += " " + (t.taken || 0) + "/" + t.total;
+        if (name.textContent !== label) name.textContent = label;
+      }
+
+      // Color del equipo con alma (para el Elder)
+      if (k === "dragon") {
+        row.style.setProperty("--oc", t.soulTeam
+          ? (t.soulTeam === leftKey ? "var(--left)" : "var(--right)")
+          : "");
+      }
+
+      // Tiempo
+      var time = row.querySelector(".otime");
+      if (time) {
+        time.textContent = t.state === "alive" ? "VIVO"
+          : t.state === "done" ? "—"
+          : fmtTimer(t.remaining);
+      }
+    });
+  }
+
+  function setLogo(img, file) {
+    var src = file ? "assets/teams/" + file : "";
+    if (src && img.getAttribute("src") !== src) img.setAttribute("src", src);
+    if (!src) img.removeAttribute("src");
+  }
+
+  function dragonDots(list) {
+    return (list || []).map(function (t) {
+      return '<span class="dr ' + String(t).toLowerCase().replace(/[^a-z]/g, "") + '"></span>';
+    }).join("");
+  }
+
+  connect();
+})();
