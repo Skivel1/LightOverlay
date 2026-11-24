@@ -34,6 +34,46 @@ const TIMERS = {
 const GRUB_EVENTS = ["HordeKill"];
 const seenEvents = new Set();
 
+const normalizeToken = value => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const GRUB_EVENT_KEYS = new Set(GRUB_EVENTS.map(normalizeToken));
+
+// Normaliza los formatos de evento entre parches viejos y nuevos.
+function getEpicKind(ev) {
+  const eventKey = normalizeToken(ev && ev.EventName);
+  if (!eventKey) return null;
+
+  if (eventKey === "DRAGONKILL") {
+    return normalizeToken(ev && ev.DragonType) === "ELDER" ? "ELDER" : "DRAGON";
+  }
+  if (eventKey === "BARONKILL") return "BARON";
+  if (eventKey === "HERALDKILL") return "HERALD";
+  if (GRUB_EVENT_KEYS.has(eventKey)) return "GRUB";
+  if (eventKey !== "EPICMONSTERKILL") return null;
+
+  const monster = normalizeToken((ev && ev.MonsterType) || (ev && ev.DragonType));
+  if (!monster) return null;
+
+  if (monster.includes("ELDER")) return "ELDER";
+  if (monster.includes("BARON") || monster.includes("NASHOR")) return "BARON";
+  if ((monster.includes("RIFT") && monster.includes("HERALD")) || monster.includes("HERALD")) return "HERALD";
+  if (monster.includes("HORDE") || monster.includes("GRUB")) return "GRUB";
+  if (monster.includes("DRAGON")) return "DRAGON";
+  return null;
+}
+
+function logEpicEvent(ev, kind) {
+  log("[InGame] Épico:", JSON.stringify({
+    kind,
+    EventName: ev.EventName || null,
+    MonsterType: ev.MonsterType || null,
+    DragonType: ev.DragonType || null,
+    EventTime: ev.EventTime,
+    KillerName: ev.KillerName || null,
+    Assisters: ev.Assisters || [],
+    Stolen: ev.Stolen || null,
+  }));
+}
+
 // ---- Valores de oro (temporada 2026 / parche 26.x). Ajustalos aqui si cambian. ----
 const GOLD = {
   START: 500,              // oro inicial por jugador
@@ -134,17 +174,28 @@ function computeObjectives(events, gameTime, teamOf) {
   const drakes = { ORDER: 0, CHAOS: 0 };
 
   for (const ev of events) {
-    const n = ev.EventName;
-    if (n === "DragonKill") {
-      if (ev.DragonType === "Elder") { lastElder = ev.EventTime; continue; }
+    const epic = getEpicKind(ev);
+    if (!epic) continue;
+
+    if (epic === "ELDER") {
+      lastElder = ev.EventTime;
+      continue;
+    }
+    if (epic === "DRAGON") {
       lastDragon = ev.EventTime;
       const t = teamOf(ev);
       if (t && ++drakes[t] >= TIMERS.SOUL_DRAGONS && soulAt == null) { soulAt = ev.EventTime; soulTeam = t; }
-    } else if (GRUB_EVENTS.includes(n)) {
+      continue;
+    }
+    if (epic === "GRUB") {
       grubs++;
-    } else if (n === "HeraldKill") {
+      continue;
+    }
+    if (epic === "HERALD") {
       heraldDone = true;
-    } else if (n === "BaronKill") {
+      continue;
+    }
+    if (epic === "BARON") {
       lastBaron = ev.EventTime;
     }
   }
@@ -220,6 +271,9 @@ function computeStats(d, memo = {}) {
       log("[InGame] Evento nuevo:", JSON.stringify(ev));
     }
 
+    const epicKind = getEpicKind(ev);
+    if (epicKind) logEpicEvent(ev, epicKind);
+
     if (ev.EventName === "ChampionKill") {
       const killer = playerByName[ev.KillerName];
       const victim = playerByName[ev.VictimName];
@@ -249,25 +303,26 @@ function computeStats(d, memo = {}) {
     } else if (ev.EventName === "InhibKilled") {
       const team = teamByName[ev.KillerName] || null;
       if (team) shareTeam(team, "towers", GOLD.INHIB);
-    } else if (ev.EventName === "DragonKill") {
+    } else if (epicKind === "DRAGON" || epicKind === "ELDER") {
       const team = killerTeam(ev);
       if (team && teams[team]) {
-        teams[team].dragons.push(ev.DragonType || "Unknown");
+        const dragonType = ev.DragonType || ev.MonsterType || (epicKind === "ELDER" ? "Elder" : "Dragon");
+        teams[team].dragons.push(dragonType);
         if (GOLD.EPIC.DRAGON) shareTeam(team, "epics", GOLD.EPIC.DRAGON * (sizeByTeam[team] || 5));
       }
-      if (team && ev.DragonType === "Elder") {
+      if (team && epicKind === "ELDER") {
         buffs.push({ type: "ELDER", team, endsAt: ev.EventTime + BUFF_SECONDS.ELDER });
       }
-    } else if (ev.EventName === "BaronKill") {
+    } else if (epicKind === "BARON") {
       const team = killerTeam(ev);
       if (team) {
         buffs.push({ type: "BARON", team, endsAt: ev.EventTime + BUFF_SECONDS.BARON });
         if (GOLD.EPIC.BARON) shareTeam(team, "epics", GOLD.EPIC.BARON * (sizeByTeam[team] || 5));
       }
-    } else if (ev.EventName === "HeraldKill") {
+    } else if (epicKind === "HERALD") {
       const team = killerTeam(ev);
       if (team && GOLD.EPIC.HERALD) shareTeam(team, "epics", GOLD.EPIC.HERALD * (sizeByTeam[team] || 5));
-    } else if (GRUB_EVENTS.includes(ev.EventName)) {
+    } else if (epicKind === "GRUB") {
       const team = killerTeam(ev);
       if (team && GOLD.EPIC.GRUB) shareTeam(team, "epics", GOLD.EPIC.GRUB * (sizeByTeam[team] || 5));
     }
@@ -340,14 +395,32 @@ function startInGame(publisher, opts = {}) {
   const port = opts.port || 2999;
   const host = opts.host || "127.0.0.1";
   const interval = opts.interval || 1000;
+  const noEventsWarnAfterSec = Math.max(1, Number(opts.noEventsWarnAfterSec) || 6);
   let state = "unknown"; // "in" | "out"
   let timer = null;
   let stopped = false;
+  let noEventsSince = null;
+  let noEventsWarned = false;
   const memo = {}; // correccion de oro por jugador; se reinicia sola al empezar otra partida
 
   const tick = async () => {
     try {
-      const stats = computeStats(await fetchLive(port, host), memo);
+      const live = await fetchLive(port, host);
+      const gameTime = Number(live && live.gameData && live.gameData.gameTime) || 0;
+      const eventList = Array.isArray(live && live.events && live.events.Events) ? live.events.Events : [];
+
+      if (gameTime > 0 && eventList.length === 0) {
+        if (noEventsSince == null) noEventsSince = Date.now();
+        const emptyForSec = (Date.now() - noEventsSince) / 1000;
+        if (!noEventsWarned && emptyForSec >= noEventsWarnAfterSec) {
+          noEventsWarned = true;
+          log("[InGame] La API no trae eventos (¿modo espectador?): los timers de objetivos no se pueden calcular");
+        }
+      } else {
+        noEventsSince = null;
+      }
+
+      const stats = computeStats(live, memo);
       if (state !== "in") log("[InGame] Partida detectada.");
       state = "in";
       publisher.publish(STATS_PATH, stats);
@@ -355,6 +428,8 @@ function startInGame(publisher, opts = {}) {
       if (state !== "out") {
         if (state === "in") log("[InGame] Partida terminada.");
         state = "out";
+        noEventsSince = null;
+        noEventsWarned = false;
         memo.bias = {}; memo.last = null;
         seenEvents.clear(); // vuelve a registrar los eventos en la siguiente partida
         publisher.publish(STATS_PATH, null);
