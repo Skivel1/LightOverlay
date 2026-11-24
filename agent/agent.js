@@ -2,9 +2,8 @@
 // Agente LWO: corre en el PC con League of Legends, lee el champ select del cliente (LCU)
 // y publica el estado al servidor por WebSocket. Reemplaza a LWOAgent + LCUHook (C#).
 //
-// Uso:  node agent.js "wss://tu-servidor/ws?token=TOKEN_AGENT"
-//       (o variable LWO_URL, o la URL en agent.url.txt junto a este archivo)
-
+// Uso: node agent.js "wss://tu-servidor/ws?token=TOKEN_AGENT"
+// (o variable LWO_URL, o la URL en agent.url.txt junto a este archivo)
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
@@ -45,6 +44,7 @@ class Publisher {
       clearTimeout(watchdog);
       watchdog = setTimeout(() => ws.terminate(), 75000);
     };
+
     ws.on("open", () => {
       log("[Agent] Conectado al servidor.");
       arm();
@@ -78,10 +78,17 @@ class SessionProcessor {
   }
 
   async _handle(session) {
-    if (!session) { this.publisher.publish(SESSION_PATH, null); return; }
+    if (!session) {
+      // Fin del champ select: sin esto el Map crecia para siempre entre partidas.
+      this.summoners.clear();
+      this.publisher.publish(SESSION_PATH, null);
+      return;
+    }
 
     const players = [...(session.myTeam || []), ...(session.theirTeam || [])];
     let changed = false;
+    const pending = [];
+
     for (const p of players) {
       const id = p.summonerId;
       if (!id || id <= 0 || this.summoners.has(id)) continue;
@@ -91,20 +98,27 @@ class SessionProcessor {
         this.summoners.set(id, { summonerId: id, gameName: p.gameName || "", tagLine: p.tagLine || "", displayName: name });
         changed = true;
       }
-      try {
-        const s = await this.fetchSummoner(id);
-        if (s && s.summonerId > 0) {
-          this.summoners.set(id, {
-            summonerId: s.summonerId,
-            gameName: s.gameName || "",
-            tagLine: s.tagLine || "",
-            displayName: s.gameName || s.displayName || "",
-            profileIconId: s.profileIconId,
-          });
-          changed = true;
-        }
-      } catch { /* bots o invocadores no consultables */ }
+      pending.push(id);
     }
+
+    // En paralelo: antes eran hasta 10 peticiones secuenciales de 5 s (50 s bloqueando
+    // la cadena de eventos, con el champ select avanzando sin publicarse).
+    if (pending.length) {
+      const results = await Promise.allSettled(pending.map(id => this.fetchSummoner(id)));
+      for (const r of results) {
+        if (r.status !== "fulfilled" || !r.value || !(r.value.summonerId > 0)) continue;
+        const s = r.value;
+        this.summoners.set(s.summonerId, {
+          summonerId: s.summonerId,
+          gameName: s.gameName || "",
+          tagLine: s.tagLine || "",
+          displayName: s.gameName || s.displayName || "",
+          profileIconId: s.profileIconId,
+        });
+        changed = true;
+      }
+    }
+
     if (changed) this.publisher.publish(SUMMONERS_PATH, Object.fromEntries(this.summoners));
     this.publisher.publish(SESSION_PATH, session);
   }
@@ -118,6 +132,7 @@ function findLcuCredentials() {
       const token = /--remoting-auth-token=([\w-]+)/.exec(out || "");
       return port && token ? { port: Number(port[1]), token: token[1] } : null;
     };
+
     if (process.platform === "win32") {
       const cmd = "Get-CimInstance Win32_Process -Filter \"name='LeagueClientUx.exe'\" | Select-Object -ExpandProperty CommandLine";
       execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd],
@@ -154,6 +169,7 @@ function runLcuSession(creds, processor) {
       headers: { Authorization: basicAuth(creds) },
       rejectUnauthorized: false,
     });
+
     ws.on("open", async () => {
       log("[LCU] Conectado al cliente de League.");
       ws.send(JSON.stringify([5, LCU_EVENT])); // suscripcion WAMP
@@ -162,6 +178,7 @@ function runLcuSession(creds, processor) {
         processor.handle(r.status === 200 ? JSON.parse(r.body) : null);
       } catch { /* se actualizara con el siguiente evento */ }
     });
+
     ws.on("message", data => {
       const text = data.toString();
       if (!text) return;
@@ -171,6 +188,7 @@ function runLcuSession(creds, processor) {
       const evt = m[2];
       processor.handle(evt.eventType === "Delete" || evt.data == null ? null : evt.data);
     });
+
     ws.on("error", e => log("[LCU] Error:", e.message));
     ws.on("close", () => { log("[LCU] Desconectado del cliente de League."); resolve(); });
   });
@@ -186,11 +204,13 @@ async function lcuLoop(processor) {
       continue;
     }
     waiting = false;
+
     const fetchSummoner = async id => {
       const r = await lcuGet(creds, `/lol-summoner/v1/summoners/${id}`);
       return r.status === 200 ? JSON.parse(r.body) : null;
     };
     processor.fetchSummoner = fetchSummoner;
+
     await runLcuSession(creds, processor);
     await sleep(1500);
   }
@@ -212,12 +232,18 @@ async function main() {
     console.log("(o define LWO_URL, o pon la URL en agent.url.txt junto al agente)");
     process.exit(1);
   }
+
   log(`[Agent] Servidor: ${maskUrl(url)}`);
+
   const publisher = new Publisher(url);
   publisher.start();
   startInGame(publisher); // estadisticas de partida (oro estimado, kills, torres, dragones)
+
   await lcuLoop(new SessionProcessor(publisher, async () => null));
 }
+
+process.on("uncaughtException", e => log("[Agent] Excepcion no capturada:", e && e.stack || e));
+process.on("unhandledRejection", e => log("[Agent] Promesa rechazada:", e && e.stack || e));
 
 if (require.main === module) main();
 module.exports = { Publisher, SessionProcessor };
