@@ -18,13 +18,6 @@
   // Ultimo oro mostrado (en centenas) por lado, para animar solo cuando sube.
   var lastGoldStep = { L: null, R: null };
 
-  // Avisos de objetivos: ids ya vistos y cola de avisos pendientes.
-  var seenFeed = null;      // null = aun no hay partida cargada
-  var toastQueue = [];
-  var toastBusy = false;
-  var OBJ_LABEL = { DRAGON: "DRAGÓN", ELDER: "DRAGÓN ANCIANO", HERALD: "HERALDO", BARON: "BARÓN", GRUB: "LARVA" };
-  var DRAGON_LABEL = { fire: "INFERNAL", earth: "MONTAÑA", air: "NUBE", water: "OCÉANO", hextech: "HEXTECH", chemtech: "QUÍMICO" };
-
   function getPath(path) {
     var cur = S;
     var segs = path.split("/");
@@ -125,7 +118,6 @@
     stage.classList.toggle("live", !!stats && !!stats.teams);
     if (!stats || !stats.teams) {
       lastGoldStep.L = lastGoldStep.R = null; // nueva partida: sin animacion inicial
-      seenFeed = null; toastQueue = [];
       renderObjectives(null);
       return;
     }
@@ -166,8 +158,8 @@
     leadR.textContent = diffForLeft < 0 ? fmtLead(-diffForLeft) : "";
 
     // Dragones
-    $("dragonsL").innerHTML = dragonDots(L.dragons) + extraCounts(L);
-    $("dragonsR").innerHTML = dragonDots(R.dragons) + extraCounts(R);
+    $("dragonsL").innerHTML = dragonDots(L.dragons);
+    $("dragonsR").innerHTML = dragonDots(R.dragons);
 
     // Buff
     var buff = stats.buff;
@@ -187,59 +179,6 @@
 
     // Timers de objetivos
     renderObjectives(stats.objectives, leftKey);
-    handleFeed(stats, leftKey, admin);
-  }
-
-  // Detecta objetivos nuevos y los manda a la cola de avisos.
-  function handleFeed(stats, leftKey, admin) {
-    var feed = (stats.objectives && stats.objectives.feed) || [];
-    if (seenFeed === null) {
-      // Primera lectura: marca todo como visto, salvo lo ocurrido en los ultimos 10 s.
-      seenFeed = {};
-      feed.forEach(function (e) { if (stats.time - e.time > 10) seenFeed[e.id] = 1; });
-    }
-    feed.forEach(function (e) {
-      if (seenFeed[e.id]) return;
-      seenFeed[e.id] = 1;
-      var left = e.team === leftKey;
-      var name = (left ? admin.leftTeamName : admin.rightTeamName) ||
-        (e.team === "ORDER" ? "AZUL" : e.team === "CHAOS" ? "ROJO" : "");
-      var what = OBJ_LABEL[e.kind] || e.kind;
-      if (e.kind === "DRAGON" && e.dragonType) {
-        what = "DRAGÓN " + (DRAGON_LABEL[String(e.dragonType).toLowerCase()] || String(e.dragonType).toUpperCase());
-      }
-      toastQueue.push({
-        color: e.team ? (left ? "var(--left)" : "var(--right)") : "#aab4c8",
-        html: (name ? "<b>" + escapeHtml(name) + "</b> " : "") + (e.stolen ? "ROBA " : "toma ") + what,
-      });
-    });
-    runToasts();
-  }
-
-  function runToasts() {
-    if (toastBusy || !toastQueue.length) return;
-    toastBusy = true;
-    var t = toastQueue.shift(), el = $("toast");
-    el.style.setProperty("--tc", t.color);
-    el.querySelector(".ttext").innerHTML = t.html;
-    el.classList.add("show");
-    setTimeout(function () {
-      el.classList.remove("show");
-      setTimeout(function () { toastBusy = false; runToasts(); }, 450);
-    }, 5000);
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
-  }
-
-  // Heraldos, larvas y barones tomados por el equipo (solo si son > 0)
-  function extraCounts(t) {
-    var out = "";
-    if (t.grubs) out += '<span class="oc grub"><i>LARVAS</i>' + t.grubs + "</span>";
-    if (t.heralds) out += '<span class="oc herald"><i>HERALDO</i>' + t.heralds + "</span>";
-    if (t.barons) out += '<span class="oc baron"><i>BARÓN</i>' + t.barons + "</span>";
-    return out;
   }
 
   function renderObjectives(o, leftKey) {
