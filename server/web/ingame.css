@@ -7,211 +7,698 @@
 }
 
 :root {
-  --left: rgb(180, 28, 49);   /* se sobrescriben con los colores del admin */
-  --right: rgb(89, 140, 245);
-  --panel: linear-gradient(180deg, rgba(9, 14, 27, .96) 0%, rgba(20, 31, 52, .96) 100%);
-  --line: rgba(255, 255, 255, .14);
-  --gold: #e6c26b;
-  --scale: 1.15;              /* tamaño general del overlay (1 = original) */
+  --team-right-color: rgba(89, 140, 245, 255);
+  --team-left-color: rgba(180, 28, 49, 255);
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* {
+    margin: 0;
+    padding: 0;
+} 
 
-html, body {
-  width: 1920px;
-  height: 1080px;
-  overflow: hidden;
-  background: transparent;
-  font-family: 'tgl_0-1451_engschriftregular', sans-serif;
-  color: #fff;
+@font-face {
+    font-family: 'tgl_0-1451_engschriftregular';
+    src: url('assets/fonts/tgl_0-1451eng-webfont.woff2') format('woff2'),
+         url('assets/fonts/tgl_0-1451eng-webfont.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+
 }
 
-#stage { position: absolute; top: 0; left: 0; width: 1920px; height: 160px; opacity: 0; transition: opacity .6s; }
-#stage.live { opacity: 1; }
+header { border:1px black solid; }
 
-/* ---------- Barra principal ---------- */
-#bar {
-  position: absolute;
+body {
+  
+  font-family: 'tgl_0-1451_engschriftregular';
+  font-weight:normal;
+  font-style:normal;  
+  
+  height: 1080px; 
+  width: 1920px;  
+  background-color: rgba(0, 0, 0, 0); 
+  overflow: hidden; 
+}
+
+body *{
+  
+
+  
+  transition: 
+    left 0.75s,
+    right 0.75s,
+    top 0.75s,
+    bottom 0.75s,
+    height 0.75s 0.75s,
+    width 0.75s 0.75s,
+    background-image 1s ease-in-out,
+    font-size 0.75s 0.75s,
+    opacity 0.75s;
+}
+
+#preloader {
+		position: absolute;
+		left: -9999px;
+		top:  -9999px;
+		}
+    
+#preloader img {
+		display: block;
+}
+
+.relative-center{
+  position: relative;
+  transform: translateX(-50%) translateY(-50%);
   left: 50%;
-  top: 0;
-  transform: translateX(-50%) scale(var(--scale));
-  transform-origin: top center;
-  height: 60px;
-  display: flex;
-  align-items: stretch;
-  background: var(--panel);
-  border-bottom: 2px solid var(--line);
-  border-radius: 0 0 12px 12px;
-  overflow: hidden;
+  top: 50%;
 }
 
-.side { display: flex; align-items: center; width: 440px; padding: 0 6px; }
-.side.right { flex-direction: row-reverse; }
-#sideL { --c: var(--left);  background: linear-gradient(90deg,  color-mix(in srgb, var(--left) 35%, transparent), transparent 55%); }
-#sideR { --c: var(--right); background: linear-gradient(270deg, color-mix(in srgb, var(--right) 35%, transparent), transparent 55%); }
-
-.logo { width: 62px; height: 60px; flex: 0 0 62px; display: flex; align-items: center; justify-content: center; }
-.logo img { max-width: 44px; max-height: 44px; }
-.logo img:not([src]) { visibility: hidden; }
-
-.team { width: 96px; flex: 0 0 96px; display: flex; flex-direction: column; align-items: center; line-height: 1; }
-.tag { font-size: 28px; max-width: 96px; white-space: nowrap; overflow: hidden; text-transform: uppercase; }
-.series { font-size: 16px; color: #aab4c8; margin-top: 3px; }
-.series:empty { display: none; }
-
-.stat { display: flex; align-items: center; gap: 6px; font-size: 28px; }
-.stat svg { width: 24px; height: 24px; fill: #d7dcea; opacity: .85; flex: 0 0 24px; }
-.stat b { font-weight: normal; }
-.stat.towers { width: 70px; flex: 0 0 70px; justify-content: center; }
-.stat.gold { width: 168px; flex: 0 0 168px; justify-content: center; }
-.stat.gold svg { fill: var(--gold); }
-
-/* Oro: destello cada vez que sube 100 */
-.stat.gold b { display: inline-block; transform-origin: center; }
-.stat.gold b.bump { animation: goldBump .45s ease-out; }
-@keyframes goldBump {
-  0%   { transform: scale(1);    color: #fff; }
-  35%  { transform: scale(1.18); color: var(--gold); text-shadow: 0 0 10px rgba(230, 194, 107, .8); }
-  100% { transform: scale(1);    color: #fff; text-shadow: none; }
-}
-
-.lead { font-style: normal; font-size: 17px; color: #7be08a; width: 50px; text-align: left; visibility: hidden; }
-.lead.show { visibility: visible; }
-
-.kills { width: 66px; flex: 0 0 66px; text-align: center; font-size: 46px; color: var(--c); text-shadow: 0 0 10px color-mix(in srgb, var(--c) 55%, transparent); }
-
-.center { width: 52px; display: flex; align-items: center; justify-content: center; }
-.center svg { width: 30px; height: 30px; fill: var(--gold); }
-
-/* ---------- Reloj y dragones ---------- */
-#under {
+.absolute-center{
   position: absolute;
+  transform: translateX(-50%) translateY(-50%);
   left: 50%;
-  top: calc(62px * var(--scale));          /* sigue pegado a la barra escalada */
-  transform: translateX(-50%) scale(var(--scale));
-  transform-origin: top center;
-  width: 932px;
-  height: 30px;
-  display: flex;
-  align-items: center;
+  top: 50%;
 }
 
-#clock {
-  width: 110px;
-  flex: 0 0 110px;
-  text-align: center;
-  font-size: 24px;
-  line-height: 28px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 0 0 8px 8px;
-  border-top: none;
+.phaseinfo{
+  height: calc(100% - 2px);
+  width: calc(1920px - 846px - 846px);
+  float:left;
   height: 100%;
-  margin-top: -2px;
+  display:flex;
+  flex-direction: column;
 }
 
-.dragons { flex: 1; display: flex; gap: 5px; padding: 0 12px; justify-content: flex-end; }
-.dragons.right { justify-content: flex-start; }
-
-.dr { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .85); background: #888; box-shadow: 0 0 6px rgba(0, 0, 0, .6); }
-.dr.fire { background: #e8552b; }
-.dr.earth { background: #a88b52; }
-.dr.air { background: #d8e6ef; }
-.dr.water { background: #3ea0e0; }
-.dr.hextech { background: #3dd6e6; }
-.dr.chemtech { background: #6fcf5b; }
-.dr.elder { background: #b160e8; border-radius: 3px; transform: rotate(45deg); }
-
-/* ---------- Panel de buff (derecha) ---------- */
-#buff {
-  position: absolute;
-  top: 0;
-  right: 16px;
-  width: 340px;
-  height: 60px;
-  background: var(--panel);
-  border-bottom: 2px solid var(--line);
-  border-radius: 0 0 12px 12px;
-  overflow: hidden;
-  opacity: 0;
-  transform-origin: top right;
-  transform: translateY(-20px) scale(var(--scale));
-  transition: opacity .5s, transform .5s;
-}
-#buff.show { opacity: 1; transform: translateY(0) scale(var(--scale)); }
-
-.btitle { height: 28px; line-height: 28px; text-align: center; font-size: 22px; letter-spacing: 2px; background: var(--bc, #444); }
-.brow { height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 20px; }
-.bar { flex: 1; height: 5px; background: rgba(255, 255, 255, .18); border-radius: 3px; overflow: hidden; }
-#bfill { height: 100%; width: 0%; background: #fff; transition: width 1s linear; }
-#blead { min-width: 100px; text-align: right; color: #7be08a; }
-
-/* ---------- Timers de objetivos (izquierda) ---------- */
-#objectives {
-  position: absolute;
-  top: 0;
-  left: 16px;
-  width: 340px;
-  height: 60px;
-  display: flex;
-  background: var(--panel);
-  border-bottom: 2px solid var(--line);
-  border-radius: 0 0 12px 12px;
-  overflow: hidden;
-  opacity: 0;
-  transform-origin: top left;
-  transform: translateY(-20px) scale(var(--scale));
-  transition: opacity .5s, transform .5s;
-}
-#objectives.show { opacity: 1; transform: translateY(0) scale(var(--scale)); }
-
-.obj {
+.flex-spacer{
   flex: 1;
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  grid-template-rows: 1fr 1fr;
-  align-items: center;
-  column-gap: 5px;
-  padding: 4px 6px 4px 8px;
-  border-left: 1px solid var(--line);
-  border-bottom: 3px solid var(--oc, transparent); /* color del equipo con alma (Elder) */
-  transition: opacity .4s, background .4s;
 }
-.obj:first-child { border-left: none; }
-.obj svg { grid-row: 1 / 3; width: 20px; height: 20px; fill: #d7dcea; opacity: .85; }
-.oname { font-size: 13px; letter-spacing: 1px; color: #aab4c8; white-space: nowrap; overflow: hidden; align-self: end; }
-.otime { font-size: 22px; line-height: 1; align-self: start; font-variant-numeric: tabular-nums; }
 
-/* Estados */
-.obj[data-state="alive"] { background: rgba(230, 194, 107, .12); }
-.obj[data-state="alive"] svg { fill: var(--gold); opacity: 1; }
-.obj[data-state="alive"] .otime { color: var(--gold); text-shadow: 0 0 8px rgba(230, 194, 107, .6); }
-.obj[data-state="done"] { opacity: .35; }
+.countdown{
+  font-size: 90px;
+  height: 90px;
+    color: white;
+    text-align: center;
+    margin-top: -12px;
+    padding-bottom: 5px;
+}
 
-/* ---------- Contadores extra junto a los dragones ---------- */
-.oc { display: inline-flex; align-items: center; gap: 3px; font-size: 15px; line-height: 15px; color: #d7dcea; margin-left: 4px; }
-.oc i { font-style: normal; font-size: 11px; letter-spacing: 1px; color: #aab4c8; }
-.oc.herald i { color: #c9a7ff; }
-.oc.baron i { color: #e08cff; }
-.oc.grub i { color: #9be37d; }
+.matchinfo{
+  margin-top: 10px;
+  text-align: center;
+  font-size: 30px;
+  color:white;
+  height: 35px;
+}
 
-/* ---------- Aviso de objetivo tomado ---------- */
-#toast {
+.patchinfo{
+  text-align: center;
+  font-size: 20px;
+  color:grey;
+  height: 23px;
+}
+
+
+.timer{
+  color: white;
+  font-size: 100px;
+  text-align:center;
+}
+
+.phase-title{
+  color: black;
+  font-size: 18px;
+  background-color:grey;
+  text-align:center;
+  height: 20px;
+  margin-left: 39px;
+  margin-right: 39px;
+}
+
+.gone .phase-title{
+  opacity: 0;
+  font-size: 0px;
+}
+
+.gone .patchinfo{
+  opacity: 0;
+  font-size: 0px;
+}
+
+.gone .matchinfo{
+  opacity: 0;
+  font-size: 0px;
+}
+
+.gone .countdown{
+  opacity: 0;
+  font-size: 0px;
+}
+
+.teaminfo {
+  float: none;
+  flex: 0 0 846px;
+  box-sizing: border-box;
+  display: flex;
+  overflow: hidden;
+  height: calc(100% - 2px);
+  width: 846px;
+  top: 1px;
+}
+
+.teaminfo-right{
+  background: linear-gradient(110deg, var(--team-right-color) 0%, #243c72 100%);
+}
+
+.teaminfo-left{
+  background: linear-gradient(110deg, var(--team-left-color) 0%, #68223c 100%);
+}
+
+.teaminfo *{
+  height: 100%;
+  text-align:center;
+}
+
+.teaminfo-left *{
+  float: left;
+}
+
+.teaminfo-right *{
+  float: right;
+}
+
+.teaminfo > * {
+  float: none;
+  flex-shrink: 0;
+}
+
+.teaminfo .logo{
+  width: 485px;
+  flex: 0 0 485px;
+}
+
+.gone .teaminfo *{
+  font-size: 0px;
+  height: 0px;
+}
+
+.teaminfo p{
+  width: 100%;
+  font-size: 110px;
+  color:white;
+}
+
+
+.teaminfo-left  .logo img{
+  filter: brightness(0%) invert(1);
+  margin-left: 25px;
+  height: 110px;
+}
+
+.teaminfo-right .logo img{
+  filter: brightness(0%) invert(1);
+  margin-right: 25px;
+  height: 110px;
+}
+
+.gone .logo img{
+  height: 0px;
+}
+
+
+.teaminfo .name{
+  width: 240px;
+  flex: 0 0 240px;
+}
+
+.teaminfo .score{
+  width: 120px;
+  flex: 0 0 120px;
+}
+
+
+
+.spacer33 {
+  width: 100%;
+  height: 33px;
+}
+
+.left {
+  left: 0%;
+}
+
+.right{
+  right: 0%;
+}
+
+.gone .teaminfo *{
+  height: 0px;
+}
+
+.header.gone {
+  height: 0px;
+}
+
+.header {
+  display: flex;
+  box-sizing: border-box;
+  left: 0%;
+  top: 0%;
+  height: 175px;
+  width: 1920px;
+  background: linear-gradient(90deg, #090e1b 0%, #182848 50%, #090e1b 100%);
+}
+
+.phaseinfo {
+  float: none;
+  flex: 0 0 228px;
+  box-sizing: border-box;
+  width: 228px;
+  background: linear-gradient(180deg, #17243b 0%, #101827 100%);
+}
+
+.picks {
+  display: flex;
+  box-sizing: border-box;
   position: absolute;
-  top: calc(100px * var(--scale));
-  left: 50%;
-  transform: translate(-50%, -14px) scale(var(--scale));
-  transform-origin: top center;
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 22px 6px 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 6px solid var(--tc, #888);
-  border-radius: 8px;
-  font-size: 24px; letter-spacing: 1px; white-space: nowrap;
-  opacity: 0; pointer-events: none;
-  transition: opacity .35s, transform .35s;
+  top: 176px;
+  width: 489px;
+  height: 783px;
+  background: linear-gradient(180deg, #17243bd9 0%, #101827d9 55%, #25153bd9 100%);
+  flex-direction: column;
+ 
+  transition: 
+    left 0.75s,
+    right 0.75s,
+    top 0.75s, 
+    bottom 0.75s,
+    height 0.75s,
+    width 0.75s,
+    background-image 1s,
+    flex-grow 0.75s;
 }
-#toast.show { opacity: 1; transform: translate(-50%, 0) scale(var(--scale)); }
-#toast .tdot { width: 14px; height: 14px; border-radius: 50%; background: var(--tc, #888); box-shadow: 0 0 10px var(--tc, #888); }
-#toast .ttext b { font-weight: normal; color: var(--tc, #fff); }
+
+.gone.picks.left{
+  left: -50%;
+}
+
+.gone.picks.right{
+  right: -50%;
+}
+
+.gone.bans.left{
+  left: -50%;
+}
+
+.gone.bans.right{
+  right: -50%;
+}
+
+.picks.bottom{
+  top: 360px;
+  transition: 
+    left 0.75s,
+    right 0.75s,
+    height 0.75s,
+    width 0.75s;    
+  
+}
+
+.picks.small-picks{
+  height: 700px;
+}
+
+.picks.truncated-picks{
+  height: 732px;
+}
+
+.truncated-picks :nth-child(n+1){
+  flex-grow: 3
+}
+
+.truncated-picks :nth-child(n+4){
+  flex-grow: 2
+}
+
+.pick{
+  box-shadow: inset 0px 0px 1px 1px #00000055;
+  border-style: solid;
+  border-color: #ffffff55;
+  border-width: 1px;
+  background-color: #101827;
+  flex-grow: 2;
+
+  transition: 
+    left 0.75s,
+    right 0.75s,
+    top 0.75s, 
+    bottom 0.75s,
+    height 0.75s,
+    width 0.75s,
+    background-image 0.75s,
+    transform 0.1s 0.75s,
+    opacity 0.75s,
+    flex-grow 0.75s;
+
+}
+
+.pick .display {
+  height: 100%;
+  width: 100%;
+  
+  transition: 
+    background-color 0.5s ease,
+    opacity 0.75s;
+    
+  border-width: 0px;
+  background-size: 200%;
+  background-image: none;  
+
+}
+
+.right .pick .display {
+  transform: scaleX(-1)
+}
+
+.pick{
+  background-position: 40% 20%;
+}
+
+.pick.big{
+  height: 207px; 
+}
+
+.bans {
+  position: absolute;
+  width: 960px;
+  height: 135px;
+  top: 198px;
+  
+  transition: 
+    left 0.75s,
+    right 0.75s,
+    top 0.75s,
+    bottom 0.75s,
+    height 0.75s,
+    width 0.75s;    
+}
+
+.bans *{
+  transition: 
+  left 0.75s,
+  right 0.75s,
+  top 0.75s,
+  bottom 0.75s,
+  height 0.75s,
+  width 0.75s,
+  opacity 0.75s;
+  
+}
+
+.bans.bottom {
+  top: 920px;
+}
+
+.bans.top {
+   top: 198px;
+}
+
+.bans.three-big-two-small.right{
+  right: 25px;
+}
+
+.bans.three-big-two-small.left{
+  left: 25px;
+}
+
+.bans.three-small-two-big.right{
+  right: 25px;
+}
+
+.bans.three-small-two-big.left{
+  left: 25px;
+}
+
+.bans.three-big :nth-child(n+1){
+  height: 135px;
+  width: 135px;
+}
+
+.bans.three-big :nth-child(n+4){
+  height: 56px;
+  width: 56px;
+  opacity: 0.0;
+}
+
+.bans.three-big-two-small :nth-child(n+1){
+  height: 135px;
+  width: 135px;
+}
+
+.bans.three-big-two-small :nth-child(n+4){
+  height: 56px;
+  width: 56px;
+}
+
+.bans.three-small-two-big :nth-child(n+1){
+  height: 56px;
+  width: 56px;
+}
+
+.bans.three-small-two-big :nth-child(n+4){
+  height: 135px;
+  width: 135px;
+}
+
+.bans.five-big .ban{
+  height: 135px;
+  width: 135px;
+}
+
+.bans.five-medium.bottom{
+  top: 977px;
+}
+
+.bans.five-medium .ban{
+  height: 69px;
+  width: 69px;
+}
+
+.right.bans {
+ right: 69px
+}
+
+.left.bans{
+ left: 69px
+}
+
+.ban{
+    box-shadow:
+        inset 0px 0px 1px 1px black,
+        0 0 0 2px #ffffff,
+        0 0 10px 2px rgba(255, 255, 255, 0.6);
+    background-size: 100% 100%;
+}
+
+.left .ban{
+  float:left;
+  margin-right: 6px;
+}
+
+.right .ban{
+  float:right;
+  margin-right: 6px;
+}
+
+.pick-text{
+  display: none;
+}
+
+.after-initial .pick-text{
+  display: block;
+  color: white;
+  z-index: 1;
+  white-space: nowrap;
+  position: relative;
+  top: 51%;
+  font-size: 40px;  
+  
+  text-shadow: -1px -1px 0 #0000008a, 
+    1px -1px 0 #0000008a,
+    -1px 1px 0 #0000008a,
+    1px 1px 0 #0000008a;
+    
+   
+}
+
+.right .pick-text.after-initial{
+  left: 3%;
+}
+
+.left .pick-text.after-initial{
+  right: 3%;
+}
+.after-initial .pick-champ{
+  font-size: 20px;
+  position: absolute;
+}
+
+.after-initial .pick-player{
+  position: absolute;
+  top: 22px;
+}
+
+.right .after-initial .pick-player{
+  left: 0%;
+}
+
+.left .after-initial .pick-player{
+  right: 0%;
+}
+
+.left .after-initial .pick-champ{
+  right: 3px;
+  top: 5px;
+}
+
+.right .after-initial .pick-champ{
+  left: 3px;
+  top: 5px;
+}
+
+.left .after-initial .pick-text {
+  float:right;
+  right: 3%;
+}
+
+.right .after-initial .pick-text {
+  float:left;
+  left: 3%;
+}
+
+.during-initial .pick-text{
+  display: block;
+  color: white;
+  z-index: 1;
+  white-space: nowrap;
+  position: relative;
+  top: 51%;
+  font-size: 40px;  
+  
+  text-shadow: -1px -1px 0 #0000008a, 
+    1px -1px 0 #0000008a,
+    -1px 1px 0 #0000008a,
+    1px 1px 0 #0000008a;
+}
+
+.pos-icon{
+  opacity: 0;
+  filter: brightness(0%) invert(1);
+}
+
+.left .pos-icon{
+  right: 44px;
+}
+
+.right .pos-icon{
+  left: 44px;
+}
+
+.during-initial .pos-icon{
+  opacity: 1;
+  display: block;
+  position: absolute;
+  top: 10%;
+  height: 50px;
+  width: 50px;
+  z-index: 1;
+  background-size: 100%;
+  transform: translateY(-50%);
+}
+
+.during-initial .pick-champ{
+  display: none;
+}
+
+.left .during-initial .pick-player{
+  position: absolute;
+  right: 127px;
+  transform: translateY(-50%);
+  top: 50%;
+}
+
+.right .during-initial .pick-player{
+  position: absolute;
+  left: 127px;
+  transform: translateY(-50%);
+  top: 50%;
+}
+
+/* Logos de equipo con su color original (sin silueta blanca) */
+/*.teaminfo-left .logo img,
+/*.teaminfo-right .logo img {
+/*  filter: none;
+/*}
+
+
+
+
+
+/* ===== Encabezado de equipos: logo en el borde, nombre pegado al logo, score hacia el centro ===== */
+
+/* Equipo derecho */
+.teaminfo-right {
+  flex-direction: row-reverse;
+}
+
+.teaminfo-right .logo {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.teaminfo-right .logo img {
+  margin-left: 20px;
+}
+
+.teaminfo-right .name {
+  width: auto;
+  flex: 0 1 auto;
+}
+
+.teaminfo-right .name p {
+  width: auto;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.teaminfo-right .score {
+  margin-right: auto;
+}
+
+/* Equipo izquierdo: el nombre ocupa lo que necesite y el espacio del logo se ajusta */
+.teaminfo-left .logo{
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+}
+.teaminfo-left .logo img{ margin-right: 20px; }
+.teaminfo-left .score{ margin-left: auto; }
+
+.teaminfo-left .name {
+  width: auto;
+  min-width: 240px;
+  flex: 0 0 auto;
+}
+
+.teaminfo-left .name p {
+  width: auto;
+  white-space: nowrap;
+}
+
+.pick{ position: relative; overflow: hidden; }
+.pick .banner{
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    pointer-events: none;
+}
