@@ -153,7 +153,7 @@ html, body {
   left: 16px;
   width: 340px;
   height: 60px;
-  display: flex;
+  display: none;
   background: var(--panel);
   border-bottom: 2px solid var(--line);
   border-radius: 0 0 12px 12px;
