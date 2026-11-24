@@ -1,223 +1,437 @@
 "use strict";
-// Agente LWO: corre en el PC con League of Legends, lee el champ select del cliente (LCU)
-// y publica el estado al servidor por WebSocket. Reemplaza a LWOAgent + LCUHook (C#).
-//
-// Uso:  node agent.js "wss://tu-servidor/ws?token=TOKEN_AGENT"
-//       (o variable LWO_URL, o la URL en agent.url.txt junto a este archivo)
+// Lee la API local de partida de League (https://127.0.0.1:2999/liveclientdata) y publica
+// estadisticas por equipo en "lolInGame/stats": kills, oro estimado, torres, dragones, buffs
+// y timers de objetivos (dragon/elder, larvas, heraldo, baron).
 
-const fs = require("fs");
-const path = require("path");
 const https = require("https");
-const { execFile } = require("child_process");
-const WebSocket = require("ws");
-const { startInGame } = require("./ingame");
 
-const SESSION_PATH = "lolChampSelect/session";
-const SUMMONERS_PATH = "lolChampSelect/summoners";
-const LCU_SESSION_URI = "/lol-champ-select/v1/session";
-const LCU_EVENT = "OnJsonApiEvent_lol-champ-select_v1_session";
+const STATS_PATH = "lolInGame/stats";
+const BUFF_SECONDS = { BARON: 180, ELDER: 150 };
+
+const TIMERS = {
+  DRAGON_FIRST: 300,
+  DRAGON_RESPAWN: 300,
+  SOUL_DRAGONS: 4,
+  ELDER_AFTER_SOUL: 360,
+  ELDER_RESPAWN: 360,
+  GRUBS_FIRST: 480,
+  GRUBS_COUNT: 3,
+  GRUBS_DESPAWN: 885,
+  HERALD_FIRST: 900,
+  HERALD_DESPAWN: 1485,
+  BARON_FIRST: 1500,
+  BARON_RESPAWN: 360,
+};
+
+const GRUB_EVENTS = ["HordeKill"];
+const seenEvents = new Set();
+
+const GOLD = {
+  START: 500,
+  PASSIVE_START: 100,
+  PASSIVE_PER_SEC: 2.04,
+  CS: 21,
+  KILL_BASE: 300,
+  KILL_PER_LEVEL: 10,
+  ASSIST_RATIO: 0.5,
+  FIRST_BLOOD_KILL: 100,
+  FIRST_BLOOD_ASSIST: 50,
+  PLATE: 120,
+  PLATE_DECAY_START: 660,
+  PLATE_DECAY_PER_MIN: 10,
+  PLATE_DECAY_MAX: 40,
+  FIRST_TURRET: 300,
+  INHIB: 50,
+  EPIC: { BARON: 300, DRAGON: 0, HERALD: 0, GRUB: 0 },
+  TURRET: {
+    outer: { global: 50, plates: 5 },
+    inner: { global: 25, plates: 5 },
+    inhib: { global: 25, plates: 5 },
+    nexus: { global: 25, plates: 0 },
+  },
+};
 
 const log = (...a) => console.log(new Date().toLocaleTimeString(), ...a);
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const maskUrl = u => u.replace(/(token=)[^&]+/i, "$1***");
 
-// ---------- Conexion al servidor remoto ----------
-class Publisher {
-  constructor(url) {
-    this.url = url;
-    this.ws = null;
-    this.last = new Map(); // ruta -> ultimo mensaje, se reenvia al reconectar
-  }
-
-  publish(p, value) {
-    const msg = JSON.stringify({ Type: "Update", Path: p, Content: JSON.stringify(value ?? null) });
-    this.last.set(p, msg);
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(msg);
-  }
-
-  start() { this._connect(); }
-
-  _connect() {
-    const ws = new WebSocket(this.url);
-    this.ws = ws;
-    let watchdog;
-    const arm = () => { // el servidor manda ping cada 30 s: si deja de hacerlo, la conexion esta muerta
-      clearTimeout(watchdog);
-      watchdog = setTimeout(() => ws.terminate(), 75000);
-    };
-    ws.on("open", () => {
-      log("[Agent] Conectado al servidor.");
-      arm();
-      for (const msg of this.last.values()) ws.send(msg);
-    });
-    ws.on("ping", arm);
-    ws.on("unexpected-response", (_req, res) => {
-      log(`[Agent] El servidor rechazo la conexion (HTTP ${res.statusCode}). Revisa el token.`);
-    });
-    ws.on("error", e => log(`[Agent] Error de conexion: ${e.message}`));
-    ws.on("close", () => {
-      clearTimeout(watchdog);
-      if (this.ws === ws) { this.ws = null; setTimeout(() => this._connect(), 3000); }
-    });
-  }
+// Normaliza nombres para emparejar en espectador (sin #TAG, minusculas y sin espacios extra)
+function normName(v) {
+  return String(v || "")
+    .split("#")[0]
+    .trim()
+    .toLowerCase();
 }
 
-// ---------- Logica del champ select (equivale a LCUHook.HandleSessionChangedAsync) ----------
-class SessionProcessor {
-  // fetchSummoner(id) -> objeto del invocador (LCU) o null
-  constructor(publisher, fetchSummoner) {
-    this.publisher = publisher;
-    this.fetchSummoner = fetchSummoner;
-    this.summoners = new Map();
-    this.chain = Promise.resolve(); // procesa los eventos en orden
+function itemGold(items) {
+  let total = 0;
+  for (const i of items || []) {
+    if (!i || i.consumable) continue;
+    const price = Number(i.price) || 0;
+    const count = Math.max(1, Number(i.count) || 1);
+    if (price > 0 && price <= 10000) {
+      total += price * count;
+    }
   }
+  return total;
+}
 
-  handle(session) {
-    this.chain = this.chain.then(() => this._handle(session)).catch(e => log("[Agent] Error:", e.message));
-    return this.chain;
+function nameKeys(p) {
+  const keys = new Set();
+  if (!p) return [];
+  for (const raw of [p.summonerName, p.riotId, p.riotIdGameName]) {
+    const n = normName(raw);
+    if (n) keys.add(n);
   }
+  if (p.riotIdGameName && p.riotIdTagLine) {
+    const full = `${p.riotIdGameName}#${p.riotIdTagLine}`.trim().toLowerCase();
+    keys.add(full);
+    keys.add(normName(full));
+  }
+  return Array.from(keys);
+}
 
-  async _handle(session) {
-    if (!session) { this.publisher.publish(SESSION_PATH, null); return; }
+const seenTurrets = new Set();
+function parseTurret(name) {
+  let owner = null, tier = null, m;
+  if ((m = /^Turret_T(Order|Chaos)_[^_]*_P(\d+)_/i.exec(name || ""))) {
+    owner = m[1].toLowerCase() === "order" ? "ORDER" : "CHAOS";
+    tier = { 3: "outer", 2: "inner", 1: "inhib" }[Number(m[2])] || null;
+  } else if ((m = /^Turret_T([12])_([LCR])_(\d+)_A/i.exec(name || ""))) {
+    owner = m[1] === "1" ? "ORDER" : "CHAOS";
+    const n = Number(m[3]);
+    tier = (m[2].toUpperCase() === "C"
+      ? { 5: "outer", 4: "inner", 3: "inhib", 2: "nexus", 1: "nexus" }
+      : { 3: "outer", 2: "inner", 1: "inhib" })[n] || null;
+  } else if ((m = /T(Order|Chaos)/i.exec(name || ""))) {
+    owner = m[1].toLowerCase() === "order" ? "ORDER" : "CHAOS";
+  }
+  if (name && !seenTurrets.has(name)) {
+    seenTurrets.add(name);
+    log(`[InGame] Torre destruida: ${name} -> dueno ${owner || "?"}, tier ${tier || "desconocido"}`);
+  }
+  return { owner, tier };
+}
 
-    const players = [...(session.myTeam || []), ...(session.theirTeam || [])];
-    let changed = false;
-    for (const p of players) {
-      const id = p.summonerId;
-      if (!id || id <= 0 || this.summoners.has(id)) continue;
+const killBounty = level => GOLD.KILL_BASE + Math.max(0, (Number(level) || 1) - 6) * GOLD.KILL_PER_LEVEL;
 
-      const name = p.gameName || p.summonerName || "";
-      if (name) { // registro base inmediato con lo que ya trae el payload
-        this.summoners.set(id, { summonerId: id, gameName: p.gameName || "", tagLine: p.tagLine || "", displayName: name });
-        changed = true;
+function plateGold(tier, t) {
+  if (tier !== "outer") return GOLD.PLATE;
+  const decay = ((Number(t || 0) - GOLD.PLATE_DECAY_START) / 60) * GOLD.PLATE_DECAY_PER_MIN;
+  return GOLD.PLATE - Math.min(GOLD.PLATE_DECAY_MAX, Math.max(0, decay));
+}
+
+const emptyTeam = () => ({
+  kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [],
+  goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, epics: 0, items: 0 },
+});
+
+function computeObjectives(events, gameTime, teamOf) {
+  let lastDragon = null, lastElder = null, soulAt = null, soulTeam = null;
+  let grubs = 0, heraldDone = false, lastBaron = null;
+  const drakes = { ORDER: 0, CHAOS: 0 };
+
+  for (const ev of events) {
+    const n = ev.EventName;
+    const evTime = Number(ev.EventTime);
+    if (n === "DragonKill") {
+      if (ev.DragonType === "Elder") {
+        if (!Number.isNaN(evTime)) lastElder = evTime;
+        continue;
       }
-      try {
-        const s = await this.fetchSummoner(id);
-        if (s && s.summonerId > 0) {
-          this.summoners.set(id, {
-            summonerId: s.summonerId,
-            gameName: s.gameName || "",
-            tagLine: s.tagLine || "",
-            displayName: s.gameName || s.displayName || "",
-            profileIconId: s.profileIconId,
-          });
-          changed = true;
-        }
-      } catch { /* bots o invocadores no consultables */ }
+      if (!Number.isNaN(evTime)) lastDragon = evTime;
+      const t = teamOf(ev);
+      if ((t === "ORDER" || t === "CHAOS") && ++drakes[t] >= TIMERS.SOUL_DRAGONS && soulAt == null) {
+        soulAt = !Number.isNaN(evTime) ? evTime : gameTime;
+        soulTeam = t;
+      }
+    } else if (GRUB_EVENTS.includes(n)) {
+      grubs++;
+    } else if (n === "HeraldKill") {
+      heraldDone = true;
+    } else if (n === "BaronKill") {
+      if (!Number.isNaN(evTime)) lastBaron = evTime;
     }
-    if (changed) this.publisher.publish(SUMMONERS_PATH, Object.fromEntries(this.summoners));
-    this.publisher.publish(SESSION_PATH, session);
   }
+
+  const timer = (spawnAt, extra) => Object.assign({
+    state: gameTime >= spawnAt ? "alive" : "spawning",
+    remaining: Math.max(0, Math.ceil(spawnAt - gameTime)),
+  }, extra || {});
+  const done = extra => Object.assign({ state: "done", remaining: 0 }, extra || {});
+
+  const dragon = soulAt != null
+    ? timer(lastElder != null ? lastElder + TIMERS.ELDER_RESPAWN : soulAt + TIMERS.ELDER_AFTER_SOUL, { kind: "ELDER", soulTeam })
+    : timer(lastDragon != null ? lastDragon + TIMERS.DRAGON_RESPAWN : TIMERS.DRAGON_FIRST, { kind: "DRAGON" });
+
+  const grubsObj = (grubs >= TIMERS.GRUBS_COUNT || gameTime >= TIMERS.GRUBS_DESPAWN)
+    ? done({ taken: grubs, total: TIMERS.GRUBS_COUNT })
+    : timer(TIMERS.GRUBS_FIRST, { taken: grubs, total: TIMERS.GRUBS_COUNT });
+
+  const herald = (heraldDone || gameTime >= TIMERS.HERALD_DESPAWN) ? done() : timer(TIMERS.HERALD_FIRST);
+  const baron = timer(lastBaron != null ? lastBaron + TIMERS.BARON_RESPAWN : TIMERS.BARON_FIRST);
+
+  return { dragon, grubs: grubsObj, herald, baron };
 }
 
-// ---------- Cliente de League (LCU) ----------
-function findLcuCredentials() {
-  return new Promise(resolve => {
-    const parse = out => {
-      const port = /--app-port=(\d+)/.exec(out || "");
-      const token = /--remoting-auth-token=([\w-]+)/.exec(out || "");
-      return port && token ? { port: Number(port[1]), token: token[1] } : null;
-    };
-    if (process.platform === "win32") {
-      const cmd = "Get-CimInstance Win32_Process -Filter \"name='LeagueClientUx.exe'\" | Select-Object -ExpandProperty CommandLine";
-      execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd],
-        { windowsHide: true, timeout: 10000, maxBuffer: 1024 * 1024 }, (_e, out) => resolve(parse(out)));
-    } else {
-      execFile("ps", ["-A", "-o", "args"], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 },
-        (_e, out) => resolve(parse((out || "").split("\n").filter(l => l.includes("LeagueClientUx")).join("\n"))));
+function computeStats(d, memo = {}) {
+  const players = (d && d.allPlayers) || [];
+  const events = ((d && d.events && d.events.Events) || [])
+    .slice()
+    .sort((x, y) => (Number(x.EventTime) || 0) - (Number(y.EventTime) || 0));
+  const gameTime = Number(d && d.gameData && d.gameData.gameTime) || 0;
+  const teams = { ORDER: emptyTeam(), CHAOS: emptyTeam() };
+
+  // Si el reloj retrocede (scrub en espectador o nueva partida), reinicia bias
+  if (memo.last != null && gameTime + 1 < memo.last) {
+    memo.bias = {};
+  }
+  memo.last = gameTime;
+  if (!memo.bias) memo.bias = {};
+
+  const teamByName = {};
+  const playerByName = {};
+  const sizeByTeam = { ORDER: 0, CHAOS: 0 };
+  for (const p of players) {
+    if (p.team === "ORDER" || p.team === "CHAOS") {
+      sizeByTeam[p.team] = (sizeByTeam[p.team] || 0) + 1;
     }
-  });
+    for (const k of nameKeys(p)) {
+      teamByName[k] = p.team;
+      playerByName[k] = p;
+    }
+  }
+
+  const resolvePlayer = rawName => {
+    if (!rawName) return null;
+    if (playerByName[rawName]) return playerByName[rawName];
+    const lower = String(rawName).trim().toLowerCase();
+    if (playerByName[lower]) return playerByName[lower];
+    const clean = normName(rawName);
+    return playerByName[clean] || null;
+  };
+
+  const resolveTeam = rawName => {
+    const pl = resolvePlayer(rawName);
+    if (pl && (pl.team === "ORDER" || pl.team === "CHAOS")) return pl.team;
+    if (!rawName) return null;
+    const clean = normName(rawName);
+    const t = teamByName[rawName] || teamByName[String(rawName).trim().toLowerCase()] || teamByName[clean];
+    return t === "ORDER" || t === "CHAOS" ? t : null;
+  };
+
+  const pid = p => p.riotId || p.summonerName || nameKeys(p)[0] || "?";
+  const ledger = new Map();
+  for (const p of players) {
+    const s = p.scores || {};
+    const passive = Math.max(0, gameTime - GOLD.PASSIVE_START) * GOLD.PASSIVE_PER_SEC;
+    ledger.set(pid(p), {
+      p,
+      base: GOLD.START + passive,
+      cs: (s.creepScore || 0) * GOLD.CS,
+      kills: 0,
+      assists: 0,
+      towers: 0,
+      plates: 0,
+      epics: 0,
+    });
+  }
+  const row = p => (p ? ledger.get(pid(p)) : null);
+  const shareTeam = (team, field, amount) => {
+    if (!team || !teams[team]) return;
+    const n = sizeByTeam[team] || 5;
+    for (const p of players) {
+      if (p.team === team && row(p)) row(p)[field] += amount / n;
+    }
+  };
+
+  const killerTeam = ev => {
+    const direct = resolveTeam(ev.KillerName);
+    if (direct) return direct;
+    for (const a of ev.Assisters || []) {
+      const t = resolveTeam(a);
+      if (t) return t;
+    }
+    return null;
+  };
+
+  const buffs = [];
+  let firstBlood = true, firstTurret = true;
+  for (const ev of events) {
+    const evKey = `${ev.EventID ?? ""}_${ev.EventName}_${ev.EventTime}_${ev.KillerName || ""}`;
+    if (!seenEvents.has(evKey)) {
+      seenEvents.add(evKey);
+      if (seenEvents.size > 2000) seenEvents.clear();
+    }
+
+    const evTime = Number(ev.EventTime) || gameTime;
+
+    if (ev.EventName === "ChampionKill") {
+      const killer = resolvePlayer(ev.KillerName);
+      const victim = resolvePlayer(ev.VictimName);
+      const bounty = killBounty(victim && victim.level);
+      const fbKill = firstBlood ? GOLD.FIRST_BLOOD_KILL : 0;
+      const fbAssist = firstBlood ? GOLD.FIRST_BLOOD_ASSIST : 0;
+      firstBlood = false;
+      if (killer && row(killer)) row(killer).kills += bounty + fbKill;
+      const assisters = (ev.Assisters || []).map(resolvePlayer).filter(Boolean);
+      if (assisters.length) {
+        const pool = Math.min(bounty * GOLD.ASSIST_RATIO, GOLD.KILL_BASE * GOLD.ASSIST_RATIO) + fbAssist;
+        for (const a of assisters) {
+          if (row(a)) row(a).assists += pool / assisters.length;
+        }
+      }
+    } else if (ev.EventName === "TurretKilled") {
+      const { owner, tier } = parseTurret(ev.TurretKilled);
+      const team = owner ? (owner === "ORDER" ? "CHAOS" : "ORDER") : killerTeam(ev);
+      if (team && teams[team]) {
+        teams[team].towers++;
+        const cfg = tier && GOLD.TURRET[tier];
+        if (cfg) {
+          shareTeam(team, "towers", cfg.global * (sizeByTeam[team] || 5));
+          shareTeam(team, "plates", cfg.plates * plateGold(tier, evTime));
+        }
+        if (firstTurret) {
+          firstTurret = false;
+          shareTeam(team, "towers", GOLD.FIRST_TURRET);
+        }
+      }
+    } else if (ev.EventName === "InhibKilled") {
+      const team = resolveTeam(ev.KillerName);
+      if (team) shareTeam(team, "towers", GOLD.INHIB);
+    } else if (ev.EventName === "DragonKill") {
+      const team = killerTeam(ev);
+      if (team && teams[team]) {
+        teams[team].dragons.push(ev.DragonType || "Unknown");
+        if (GOLD.EPIC.DRAGON) shareTeam(team, "epics", GOLD.EPIC.DRAGON * (sizeByTeam[team] || 5));
+        if (ev.DragonType === "Elder") {
+          buffs.push({ type: "ELDER", team, endsAt: evTime + BUFF_SECONDS.ELDER });
+        }
+      }
+    } else if (ev.EventName === "BaronKill") {
+      const team = killerTeam(ev);
+      if (team) {
+        buffs.push({ type: "BARON", team, endsAt: evTime + BUFF_SECONDS.BARON });
+        if (GOLD.EPIC.BARON) shareTeam(team, "epics", GOLD.EPIC.BARON * (sizeByTeam[team] || 5));
+      }
+    } else if (ev.EventName === "HeraldKill") {
+      const team = killerTeam(ev);
+      if (team && GOLD.EPIC.HERALD) shareTeam(team, "epics", GOLD.EPIC.HERALD * (sizeByTeam[team] || 5));
+    } else if (GRUB_EVENTS.includes(ev.EventName)) {
+      const team = killerTeam(ev);
+      if (team && GOLD.EPIC.GRUB) shareTeam(team, "epics", GOLD.EPIC.GRUB * (sizeByTeam[team] || 5));
+    }
+  }
+
+  const active = buffs.filter(b => b.endsAt > gameTime).sort((a, b) => b.endsAt - a.endsAt)[0];
+
+  for (const r of ledger.values()) {
+    const t = teams[r.p.team];
+    if (!t) continue;
+    const s = r.p.scores || {};
+    t.kills += s.kills || 0;
+    t.deaths += s.deaths || 0;
+    t.assists += s.assists || 0;
+    t.cs += s.creepScore || 0;
+
+    const model = r.base + r.cs + r.kills + r.assists + r.towers + r.plates + r.epics;
+    const id = pid(r.p);
+    const floor = itemGold(r.p.items) - model;
+    if (floor > (memo.bias[id] || 0) && floor <= 3500) {
+      memo.bias[id] = floor;
+    }
+    const bias = memo.bias[id] || 0;
+
+    t.gold += model + bias;
+    const g = t.goldParts;
+    g.base += r.base;
+    g.cs += r.cs;
+    g.kills += r.kills;
+    g.assists += r.assists;
+    g.towers += r.towers;
+    g.plates += r.plates;
+    g.items += bias;
+    g.epics += r.epics;
+  }
+
+  for (const t of Object.values(teams)) {
+    t.gold = Math.round(t.gold);
+    for (const k of Object.keys(t.goldParts)) t.goldParts[k] = Math.round(t.goldParts[k]);
+  }
+
+  const me = d && d.activePlayer;
+  const localTeam = (me && nameKeys(me).map(k => teamByName[k]).find(Boolean)) || "ORDER";
+
+  return {
+    time: Math.floor(gameTime),
+    localTeam,
+    teams,
+    goldDiff: teams.ORDER.gold - teams.CHAOS.gold,
+    buff: active
+      ? {
+          type: active.type,
+          team: active.team,
+          remaining: Math.max(0, Math.ceil(active.endsAt - gameTime)),
+          duration: BUFF_SECONDS[active.type],
+        }
+      : null,
+    objectives: computeObjectives(events, gameTime, killerTeam),
+  };
 }
 
-const basicAuth = c => "Basic " + Buffer.from("riot:" + c.token).toString("base64");
-
-function lcuGet(creds, uri) {
+function fetchLive(port, host) {
   return new Promise((resolve, reject) => {
     const req = https.get({
-      host: "127.0.0.1", port: creds.port, path: uri, timeout: 5000,
-      headers: { Authorization: basicAuth(creds), Accept: "application/json" },
-      rejectUnauthorized: false, // el LCU usa un certificado propio de Riot, solo en localhost
+      host,
+      port,
+      path: "/liveclientdata/allgamedata",
+      timeout: 1500,
+      rejectUnauthorized: false,
     }, res => {
       let body = "";
-      res.on("data", d => (body += d));
-      res.on("end", () => resolve({ status: res.statusCode, body }));
+      res.on("data", c => (body += c));
+      res.on("end", () => {
+        if (res.statusCode !== 200) return reject(new Error("HTTP " + res.statusCode));
+        try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+      });
     });
     req.on("timeout", () => req.destroy(new Error("timeout")));
     req.on("error", reject);
   });
 }
 
-// Una sesion con el cliente: resuelve cuando se cierra la conexion.
-function runLcuSession(creds, processor) {
-  return new Promise(resolve => {
-    const ws = new WebSocket(`wss://127.0.0.1:${creds.port}/`, {
-      headers: { Authorization: basicAuth(creds) },
-      rejectUnauthorized: false,
-    });
-    ws.on("open", async () => {
-      log("[LCU] Conectado al cliente de League.");
-      ws.send(JSON.stringify([5, LCU_EVENT])); // suscripcion WAMP
-      try { // estado actual, por si el agente arranca con el champ select ya abierto
-        const r = await lcuGet(creds, LCU_SESSION_URI);
-        processor.handle(r.status === 200 ? JSON.parse(r.body) : null);
-      } catch { /* se actualizara con el siguiente evento */ }
-    });
-    ws.on("message", data => {
-      const text = data.toString();
-      if (!text) return;
-      let m;
-      try { m = JSON.parse(text); } catch { return; }
-      if (!Array.isArray(m) || m[0] !== 8 || !m[2] || m[2].uri !== LCU_SESSION_URI) return;
-      const evt = m[2];
-      processor.handle(evt.eventType === "Delete" || evt.data == null ? null : evt.data);
-    });
-    ws.on("error", e => log("[LCU] Error:", e.message));
-    ws.on("close", () => { log("[LCU] Desconectado del cliente de League."); resolve(); });
-  });
-}
+function startInGame(publisher, opts = {}) {
+  const port = opts.port || 2999;
+  const host = opts.host || "127.0.0.1";
+  const interval = opts.interval || 500;
+  let state = "unknown";
+  let timer = null;
+  let stopped = false;
+  let lastPublishedTime = -1;
+  const memo = {};
 
-async function lcuLoop(processor) {
-  let waiting = false;
-  for (;;) {
-    const creds = await findLcuCredentials();
-    if (!creds) {
-      if (!waiting) { log("[LCU] Esperando al cliente de League of Legends..."); waiting = true; }
-      await sleep(3000);
-      continue;
+  const tick = async () => {
+    try {
+      const stats = computeStats(await fetchLive(port, host), memo);
+      if (state !== "in") log("[InGame] Partida detectada.");
+      state = "in";
+      if (stats.time !== lastPublishedTime) {
+        lastPublishedTime = stats.time;
+        publisher.publish(STATS_PATH, stats);
+      }
+    } catch {
+      if (state !== "out") {
+        if (state === "in") log("[InGame] Partida terminada.");
+        state = "out";
+        lastPublishedTime = -1;
+        memo.bias = {};
+        memo.last = null;
+        seenEvents.clear();
+        publisher.publish(STATS_PATH, null);
+      }
     }
-    waiting = false;
-    const fetchSummoner = async id => {
-      const r = await lcuGet(creds, `/lol-summoner/v1/summoners/${id}`);
-      return r.status === 200 ? JSON.parse(r.body) : null;
-    };
-    processor.fetchSummoner = fetchSummoner;
-    await runLcuSession(creds, processor);
-    await sleep(1500);
-  }
+    if (!stopped) timer = setTimeout(tick, interval);
+  };
+  tick();
+  return () => { stopped = true; clearTimeout(timer); };
 }
 
-// ---------- Arranque ----------
-function readUrl() {
-  const dir = process.pkg ? path.dirname(process.execPath) : __dirname;
-  let url = process.argv[2] || process.env.LWO_URL;
-  const file = path.join(dir, "agent.url.txt");
-  if (!url && fs.existsSync(file)) url = fs.readFileSync(file, "utf8").trim();
-  return url;
-}
-
-async function main() {
-  const url = readUrl();
-  if (!url) {
-    console.log('Uso: node agent.js "wss://tu-servidor/ws?token=TOKEN_AGENT"');
-    console.log("(o define LWO_URL, o pon la URL en agent.url.txt junto al agente)");
-    process.exit(1);
-  }
-  log(`[Agent] Servidor: ${maskUrl(url)}`);
-  const publisher = new Publisher(url);
-  publisher.start();
-  startInGame(publisher); // estadisticas de partida (oro estimado, kills, torres, dragones)
-  await lcuLoop(new SessionProcessor(publisher, async () => null));
-}
-
-if (require.main === module) main();
-module.exports = { Publisher, SessionProcessor };
+module.exports = { computeStats, startInGame, STATS_PATH };
