@@ -1,234 +1,177 @@
-// Barra superior de partida. Lee "lolInGame/stats" (lo publica el agente) y los datos de equipo
-// del admin (nombre, logo, color, marcador de la serie).
-//
-// Parametros de la URL:
-//   ?token=...   token del servidor (igual que el overlay de picks y bans)
-//   ?swap=1      invierte los lados (por defecto el equipo del jugador local va a la izquierda)
+<!DOCTYPE html>
+<html bind-context="{lolChampSelect/}" bind="{path=admin/leftTeamColor attribute=style.--team-left-color in=cssVariableConverter}{path=admin/rightTeamColor attribute=style.--team-right-color in=cssVariableConverter}">
 
-(function () {
-  var q = new URLSearchParams(location.search);
-  var token = q.get("token") || "";
-  var swap = q.get("swap") === "1";
-  var WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" +
-    (token ? "?token=" + encodeURIComponent(token) : "");
+<head>
+    <link rel="stylesheet" type="text/css" href="overlay.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="admin.css" media="screen" />
+</head>
 
-  var S = {};
-  var $ = function (id) { return document.getElementById(id); };
+<body >
+    <div class="header">
+      <div template="{class=teaminfo side=left}"></div>
+      <div class="phaseinfo">
+        <div class="matchinfo" contenteditable="true" bind="{attribute=innerHTML path=admin/matchInfo out=input}"></div>
+        <div class="patchinfo" contenteditable="true" bind="{attribute=innerHTML path=admin/patchInfo out=input}"></div>
+        <div class="countdown">
+            <select class="version-select" bind="{attribute=value path=admin/version out=change}"></select>
+        </div>
+        <div class="phase-title"></div>
+        <div class="flex-spacer"></div>
+      </div>
+      <div template="{class=teaminfo side=right}"></div>
+    </div>
 
-  // Ultimo oro mostrado (en centenas) por lado, para animar solo cuando sube.
-  var lastGoldStep = { L: null, R: null };
+    <div class="left picks top three-big">
+        <div template="{class=pick team=1 slot=0}"></div>
+        <div template="{class=pick team=1 slot=1}"></div>
+        <div template="{class=pick team=1 slot=2}"></div>
+        <div template="{class=pick team=1 slot=3}"></div>
+        <div template="{class=pick team=1 slot=4}"></div>
+    </div>
 
-  function getPath(path) {
-    var cur = S;
-    var segs = path.split("/");
-    for (var i = 0; i < segs.length; i++) {
-      if (cur == null || typeof cur !== "object") return undefined;
-      cur = cur[segs[i]];
-    }
-    return cur;
-  }
+    <div class="right picks top three-big">
+        <div template="{class=pick team=2 slot=0}"></div>
+        <div template="{class=pick team=2 slot=1}"></div>
+        <div template="{class=pick team=2 slot=2}"></div>
+        <div template="{class=pick team=2 slot=3}"></div>
+        <div template="{class=pick team=2 slot=4}"></div>
+    </div>
 
-  function setPath(path, value) {
-    var segs = path.split("/");
-    var cur = S;
-    for (var i = 0; i < segs.length - 1; i++) {
-      if (cur[segs[i]] == null || typeof cur[segs[i]] !== "object") cur[segs[i]] = {};
-      cur = cur[segs[i]];
-    }
-    cur[segs[segs.length - 1]] = value;
-  }
+    <div class="left bans gone">
+        <div class="ban"></div>
+        <div class="ban"></div>
+        <div class="ban"></div>
+        <div class="ban"></div>
+        <div class="ban"></div>
+    </div>
 
-  function parse(content) {
-    if (typeof content !== "string") return content == null ? null : content;
-    try { return JSON.parse(content); } catch (e) { return content; }
-  }
+    <div class="right bans gone">
+        <div class="ban"></div>
+        <div class="ban"></div>
+        <div class="ban"></div>
+        <div class="ban"></div>
+        <div class="ban"></div>
+    </div>
 
-  function send(type, content) {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ Type: type, Content: content }));
-  }
+<div class="banner-config">
+        <div class="banner-row">
+            <span>Banner izquierdo:</span>
+            <p id="leftBannerInput" contenteditable="true" bind="{attribute=innerHTML path=admin/leftPickBanner out=input}"></p>
+        </div>
+        <div class="banner-row">
+            <span>Banner derecho:</span>
+            <p id="rightBannerInput" contenteditable="true" bind="{attribute=innerHTML path=admin/rightPickBanner out=input}"></p>
+        </div>
 
-  var ws = null;
-  function connect() {
-    ws = new WebSocket(WS_URL);
-    ws.onopen = function () {
-      send("Subscribe", "lolInGame/stats");
-      send("Subscribe", "lolChampSelect/admin");
-    };
-    ws.onmessage = function (e) {
-      var m;
-      try { m = JSON.parse(e.data); } catch (err) { return; }
-      if (m && m.Type === "Update" && m.Path) {
-        setPath(m.Path, parse(m.Content));
-        render();
-      }
-    };
-    ws.onclose = function () { setTimeout(connect, 2000); };
-    ws.onerror = function () {};
-  }
+        <div class="banner-previews">
+            <div class="banner-preview-box">
+                <span class="banner-preview-label">Vista previa izquierda</span>
+                <div id="leftBannerPreview" class="banner-preview"><span class="banner-preview-msg">Sin banner</span></div>
+            </div>
+            <div class="banner-preview-box">
+                <span class="banner-preview-label">Vista previa derecha</span>
+                <div id="rightBannerPreview" class="banner-preview"><span class="banner-preview-msg">Sin banner</span></div>
+            </div>
+        </div>
+    </div>
 
-  function fmtTime(s) {
-    s = Math.max(0, Math.floor(s || 0));
-    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    var mm = (m < 10 ? "0" : "") + m, ss = (sec < 10 ? "0" : "") + sec;
-    return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
-  }
+    <div id="templates" style="display: none" >
+        <div class="pick after-initial">
+            <div class="pick-text">
+                <select class="role-select" aria-label="Posición del jugador" bind="{attribute=value path=admin/positions/{team}/{slot} out=change}">
+                    <option value="top">Toplane</option>
+                    <option value="bottom">Botlane</option>
+                    <option value="jungle">Jungle</option>
+                    <option value="middle">Midlane</option>
+                    <option value="utility">Support</option>
+                    <option value="auto">Auto</option>
+                </select>
 
-  // Timer corto para objetivos: 4:05
-  function fmtTimer(s) {
-    s = Math.max(0, Math.floor(s || 0));
-    var sec = s % 60;
-    return Math.floor(s / 60) + ":" + (sec < 10 ? "0" : "") + sec;
-  }
+                <p class="pick-champ"></p>
+                <p class="pick-player"></p>
+            </div>
+            <div class="display"></div>
+        </div>
 
-  // Oro en escalones exactos de 100 (12,380 -> 12.3k; 950 -> 900)
-  function goldStep(n) {
-    return Math.floor(Math.max(0, n || 0) / 100);
-  }
-  function fmtGoldStep(step) {
-    var n = step * 100;
-    return n >= 1000 ? (step / 10).toFixed(1) + "k" : String(n);
-  }
+        <div class="teaminfo teaminfo-{side}">
+            <div class="logo">
+                <p class="team-{side}-color" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamColor out=input}"></p>
+                <img bind="{attribute=src path=admin/{side}TeamIcon in=teamLogoConverter}"/>
+                <p class="team-{side}-icon-fn" contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamIcon out=input}"></p>
+            </div>
+            <div class="name"><div class="spacer33"></div><p contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamName out=input}"></p></div>
+            <div class="score"><div class="spacer33"></div><p contenteditable="true" bind="{attribute=innerHTML path=admin/{side}TeamScore out=input}"></p></div>
+        </div>
+    </div>
+    <script src="state.js"></script>
+    <script src="admin.js"></script>
+<script>
+    (function () {
+        var cache = {}; // nombre -> "ok" | "error"
 
-  function fmtLead(n) {
-    return "+" + Math.round(n).toLocaleString("en-US");
-  }
+        function cleanName(el) {
+            return (el ? el.textContent : "").replace(/\u00a0/g, " ").trim();
+        }
 
-  function color(c, fallback) {
-    return c && typeof c === "string" ? c : fallback;
-  }
+        function setupPreview(inputId, previewId, teamColorVar) {
+            var input = document.getElementById(inputId);
+            var preview = document.getElementById(previewId);
+            var msg = preview.querySelector(".banner-preview-msg");
+            var lastName = null;
+            var timer = null;
 
-  // Actualiza el oro de un lado; anima solo si subio al menos 100.
-  function setGold(side, gold) {
-    var el = $("gold" + side);
-    var step = goldStep(gold);
-    var prev = lastGoldStep[side];
-    if (prev === step) return;
-    el.textContent = fmtGoldStep(step);
-    if (prev != null && step > prev) {
-      el.classList.remove("bump");
-      void el.offsetWidth; // reinicia la animacion
-      el.classList.add("bump");
-    }
-    lastGoldStep[side] = step;
-  }
+            function show(name, state) {
+                if (cleanName(input) !== name) return;
+                if (state === "ok") {
+                    preview.style.backgroundColor = "transparent";
+                    preview.style.backgroundImage = "url(assets/champselectbanner/" + encodeURIComponent(name) + ")";
+                    msg.style.display = "none";
+                } else {
+                    preview.style.backgroundImage = "none";
+                    preview.style.backgroundColor = "#5a1a1a";
+                    msg.textContent = "No se encontró: " + name;
+                    msg.style.display = "";
+                }
+            }
 
-  function render() {
-    var stats = getPath("lolInGame/stats");
-    var stage = $("stage");
-    stage.classList.toggle("live", !!stats && !!stats.teams);
-    if (!stats || !stats.teams) {
-      lastGoldStep.L = lastGoldStep.R = null; // nueva partida: sin animacion inicial
-      renderObjectives(null);
-      return;
-    }
+            function update() {
+                var name = cleanName(input);
+                if (name === lastName) return;
+                lastName = name;
 
-    var admin = getPath("lolChampSelect/admin") || {};
-    var localTeam = stats.localTeam === "CHAOS" ? "CHAOS" : "ORDER";
-    var leftKey = swap ? (localTeam === "ORDER" ? "CHAOS" : "ORDER") : localTeam;
-    var rightKey = leftKey === "ORDER" ? "CHAOS" : "ORDER";
-    var L = stats.teams[leftKey], R = stats.teams[rightKey];
+                if (!name) {
+                    preview.style.backgroundImage = "none";
+                    preview.style.backgroundColor = "var(" + teamColorVar + ")";
+                    msg.textContent = "Sin banner (se usará el color del equipo)";
+                    msg.style.display = "";
+                    return;
+                }
 
-    var root = document.documentElement.style;
-    root.setProperty("--left", color(admin.leftTeamColor, "rgb(180,28,49)"));
-    root.setProperty("--right", color(admin.rightTeamColor, "rgb(89,140,245)"));
+                if (cache[name]) { show(name, cache[name]); return; }
 
-    // Equipos
-    $("tagL").textContent = admin.leftTeamName || "";
-    $("tagR").textContent = admin.rightTeamName || "";
-    $("seriesL").textContent = admin.leftTeamScore != null && admin.leftTeamScore !== "" ? admin.leftTeamScore : "";
-    $("seriesR").textContent = admin.rightTeamScore != null && admin.rightTeamScore !== "" ? admin.rightTeamScore : "";
-    setLogo($("logoL"), admin.leftTeamIcon);
-    setLogo($("logoR"), admin.rightTeamIcon);
+                msg.textContent = "Cargando...";
+                msg.style.display = "";
+                var img = new Image();
+                img.decoding = "async";
+                img.onload = function () { cache[name] = "ok"; show(name, "ok"); };
+                img.onerror = function () { cache[name] = "error"; show(name, "error"); };
+                img.src = "assets/champselectbanner/" + encodeURIComponent(name);
+            }
 
-    // Cifras
-    $("killsL").textContent = L.kills;
-    $("killsR").textContent = R.kills;
-    $("towersL").textContent = L.towers;
-    $("towersR").textContent = R.towers;
-    setGold("L", L.gold);
-    setGold("R", R.gold);
-    $("clock").textContent = fmtTime(stats.time);
+            function debounced() {
+                clearTimeout(timer);
+                timer = setTimeout(update, 600);
+            }
 
-    // Ventaja de oro (positiva = ORDER)
-    var diffForLeft = leftKey === "ORDER" ? stats.goldDiff : -stats.goldDiff;
-    var leadL = $("leadL"), leadR = $("leadR");
-    leadL.classList.toggle("show", diffForLeft > 0);
-    leadR.classList.toggle("show", diffForLeft < 0);
-    leadL.textContent = diffForLeft > 0 ? fmtLead(diffForLeft) : "";
-    leadR.textContent = diffForLeft < 0 ? fmtLead(-diffForLeft) : "";
+            input.addEventListener("input", debounced);
+            setTimeout(update, 800);    // valor inicial que llega del servidor
+            setInterval(update, 2000);  // por si lo cambian desde otra pestaña (solo lee texto)
+        }
 
-    // Dragones
-    $("dragonsL").innerHTML = dragonDots(L.dragons);
-    $("dragonsR").innerHTML = dragonDots(R.dragons);
+        setupPreview("leftBannerInput", "leftBannerPreview", "--team-left-color");
+        setupPreview("rightBannerInput", "rightBannerPreview", "--team-right-color");
+    })();
+    </script>
+</body>
 
-    // Buff
-    var buff = stats.buff;
-    var panel = $("buff");
-    panel.classList.toggle("show", !!buff);
-    if (buff) {
-      var holderLeft = buff.team === leftKey;
-      panel.style.setProperty("--bc", holderLeft ? "var(--left)" : "var(--right)");
-      $("btitle").textContent = (buff.type === "ELDER" ? "ELDER" : "BARON") + " BUFF";
-      $("btime").textContent = fmtTime(buff.remaining);
-      $("bfill").style.width = Math.max(0, Math.min(100, (buff.remaining / buff.duration) * 100)) + "%";
-      var diff = Math.abs(stats.goldDiff);
-      var leaderLeft = diffForLeft >= 0;
-      var tag = (leaderLeft ? admin.leftTeamName : admin.rightTeamName) || "";
-      $("blead").textContent = diff > 0 ? fmtLead(diff) + " " + tag : "";
-    }
-
-    // Timers de objetivos
-    renderObjectives(stats.objectives, leftKey);
-  }
-
-  function renderObjectives(o, leftKey) {
-    var panel = $("objectives");
-    if (!panel) return;
-    panel.classList.toggle("show", !!o);
-    if (!o) return;
-
-    ["dragon", "grubs", "herald", "baron"].forEach(function (k) {
-      var row = $("obj-" + k), t = o[k];
-      if (!row || !t) return;
-      row.setAttribute("data-state", t.state);
-
-      // Nombre de la fila
-      var name = row.querySelector(".oname");
-      if (name) {
-        var label = { dragon: "DRAGÓN", grubs: "LARVAS", herald: "HERALDO", baron: "BARÓN" }[k];
-        if (k === "dragon" && t.kind === "ELDER") label = "ELDER";
-        if (k === "grubs" && t.total) label += " " + (t.taken || 0) + "/" + t.total;
-        if (name.textContent !== label) name.textContent = label;
-      }
-
-      // Color del equipo con alma (para el Elder)
-      if (k === "dragon") {
-        row.style.setProperty("--oc", t.soulTeam
-          ? (t.soulTeam === leftKey ? "var(--left)" : "var(--right)")
-          : "");
-      }
-
-      // Tiempo
-      var time = row.querySelector(".otime");
-      if (time) {
-        time.textContent = t.state === "alive" ? "VIVO"
-          : t.state === "done" ? "—"
-          : fmtTimer(t.remaining);
-      }
-    });
-  }
-
-  function setLogo(img, file) {
-    var src = file ? "assets/teams/" + file : "";
-    if (src && img.getAttribute("src") !== src) img.setAttribute("src", src);
-    if (!src) img.removeAttribute("src");
-  }
-
-  function dragonDots(list) {
-    return (list || []).map(function (t) {
-      return '<span class="dr ' + String(t).toLowerCase().replace(/[^a-z]/g, "") + '"></span>';
-    }).join("");
-  }
-
-  connect();
-})();
+</html>
