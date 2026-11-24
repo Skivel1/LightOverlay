@@ -1,11 +1,10 @@
 "use strict";
 // Servidor LWO en Node. Hace tres cosas:
-//   1. Sirve el overlay y el admin (carpeta web/) en /lol_picksandbans/
-//   2. Cachea los assets de Data Dragon en /assets/cdragon/ (reemplaza CacheDragon)
-//   3. Guarda el estado y lo retransmite por WebSocket en /ws (reemplaza LWOServer en C#)
+// 1. Sirve el overlay y el admin (carpeta web/) en /lol_picksandbans/
+// 2. Cachea los assets de Data Dragon en /assets/cdragon/ (reemplaza CacheDragon)
+// 3. Guarda el estado y lo retransmite por WebSocket en /ws (reemplaza LWOServer en C#)
 // El protocolo de mensajes es el mismo que usa el front actual:
-//   { Type: "Subscribe", Content: "ruta" }  |  { Type: "Update", Path: "ruta", Content: "<json>" }
-
+// { Type: "Subscribe", Content: "ruta" } | { Type: "Update", Path: "ruta", Content: "" }
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -40,15 +39,19 @@ const sha = s => crypto.createHash("sha256").update(String(s)).digest("hex");
 // Cada sala tiene su propio estado y tres tokens: agent, admin y view.
 function loadRooms() {
   let raw = process.env.LWO_ROOMS;
+
   // Modo token unico: LWO_TOKEN -> una sola sala "default" donde ese token sirve para todo.
   if (!raw && process.env.LWO_TOKEN) {
     console.warn("[config] Modo token unico (LWO_TOKEN).");
     return new Map([[sha(process.env.LWO_TOKEN), { room: "default", role: "all" }]]);
   }
+
   if (!raw && fs.existsSync(ROOMS_FILE)) raw = fs.readFileSync(ROOMS_FILE, "utf8");
   if (!raw) fail("Faltan las salas. Define LWO_TOKEN, LWO_ROOMS o crea rooms.json.");
+
   let cfg;
   try { cfg = JSON.parse(raw); } catch (e) { fail("rooms invalido: " + e.message); }
+
   const byTokenHash = new Map(); // sha256(token) -> { room, role }
   for (const [room, roles] of Object.entries(cfg)) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(room)) fail(`Nombre de sala invalido: "${room}"`);
@@ -63,12 +66,14 @@ function loadRooms() {
   if (!byTokenHash.size) fail("No hay ninguna sala configurada.");
   return byTokenHash;
 }
+
 const TOKENS = loadRooms();
 function authenticate(token) { return token ? TOKENS.get(sha(token)) || null : null; }
+
 // ---------- Estado compartido (arbol JSON direccionado por rutas) ----------
 const UNSAFE = new Set(["__proto__", "constructor", "prototype"]);
 
-// "a[0]/b" -> ["a","0","b"]  (misma convencion que el servidor C#)
+// "a[0]/b" -> ["a","0","b"] (misma convencion que el servidor C#)
 function toSegments(p) {
   if (typeof p !== "string") return null;
   const segs = p.replace(/\[/g, "/").replace(/\]/g, "").split("/").filter(Boolean);
@@ -79,11 +84,13 @@ function toSegments(p) {
   }
   return segs;
 }
+
 function related(a, b) { // una ruta es prefijo de la otra
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) if (a[i] !== b[i]) return false;
   return true;
 }
+
 function getAt(root, segs) {
   let cur = root;
   for (const s of segs) {
@@ -92,6 +99,7 @@ function getAt(root, segs) {
   }
   return cur;
 }
+
 function setAt(root, segs, value) {
   let cur = root;
   for (let i = 0; i < segs.length - 1; i++) {
@@ -104,21 +112,25 @@ function setAt(root, segs, value) {
   }
   cur[segs[segs.length - 1]] = value;
 }
+
 function canWrite(role, segs) {
   return WRITE_RULES[role].some(rule => {
     const r = rule.split("/");
     return r.length <= segs.length && r.every((s, i) => s === segs[i]);
   });
 }
+
 function parseContent(c) {
   if (typeof c !== "string") return c === undefined ? null : c;
   try { return JSON.parse(c); } catch { return c; }
 }
 
 let seedCache = null;
+// Devuelve la REFERENCIA al seed (solo lectura). Cada sala clona unicamente las ramas
+// que puede escribir; el resto (lolChampionData, ~400 KB) se comparte entre salas.
 function loadSeed() {
   if (!seedCache) seedCache = JSON.parse(fs.readFileSync(SEED_FILE, "utf8"));
-  return structuredClone(seedCache);
+  return seedCache;
 }
 
 class Room {
@@ -127,7 +139,13 @@ class Room {
     this.clients = new Set();
     this.timer = null;
     this.file = path.join(DATA_DIR, `state-${name}.json`);
-    this.state = loadSeed(); // lolChampionData + valores por defecto del admin
+
+    const seed = loadSeed();
+    this.state = Object.assign({}, seed, {
+      lolChampSelect: structuredClone(seed.lolChampSelect || {}),
+      lolInGame: Object.assign({}, seed.lolInGame || {}),
+    });
+
     try { // solo se persiste lolChampSelect (admin, session, summoners)
       const saved = JSON.parse(fs.readFileSync(this.file, "utf8"));
       if (saved && typeof saved.lolChampSelect === "object") {
@@ -135,10 +153,12 @@ class Room {
       }
     } catch { /* primera vez o archivo ilegible: se parte del seed */ }
   }
+
   scheduleSave() {
     if (this.timer) return;
     this.timer = setTimeout(() => { this.timer = null; this.flush(); }, 1000);
   }
+
   flush() {
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -148,6 +168,7 @@ class Room {
     } catch (e) { console.error(`[state] No se pudo guardar "${this.name}": ${e.message}`); }
   }
 }
+
 const rooms = new Map();
 for (const { room } of TOKENS.values()) if (!rooms.has(room)) rooms.set(room, new Room(room));
 
@@ -155,8 +176,17 @@ for (const { room } of TOKENS.values()) if (!rooms.has(room)) rooms.set(room, ne
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png",
-  ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".woff": "font/woff", ".woff2": "font/woff2",
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon",
+  ".svg": "image/svg+xml", ".woff": "font/woff", ".woff2": "font/woff2",
 };
+
+// Assets inmutables: se cachean una semana en el navegador de OBS.
+const IMMUTABLE_EXT = new Set([".woff", ".woff2", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"]);
+function cacheFor(file) {
+  return IMMUTABLE_EXT.has(path.extname(file).toLowerCase())
+    ? "public, max-age=604800, immutable"
+    : "no-cache";
+}
 
 function safeJoin(base, rel) {
   let decoded;
@@ -169,18 +199,30 @@ function safeJoin(base, rel) {
 function sendFile(req, res, file, cacheControl) {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404); return res.end("Not found"); }
-    res.writeHead(200, {
-      "Content-Type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
+    const ext = path.extname(file).toLowerCase();
+    const headers = {
+      "Content-Type": MIME[ext] || "application/octet-stream",
       "Content-Length": st.size,
       "Cache-Control": cacheControl,
       "X-Content-Type-Options": "nosniff",
-    });
+      "Referrer-Policy": "no-referrer",
+    };
+    if (ext === ".html") {
+      headers["Content-Security-Policy"] =
+        "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; " +
+        "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; " +
+        "connect-src 'self' ws: wss: https://ddragon.leagueoflegends.com";
+    }
+    res.writeHead(200, headers);
     if (req.method === "HEAD") return res.end();
     fs.createReadStream(file).on("error", () => res.destroy()).pipe(res);
   });
 }
 
 const inflight = new Map();
+const missing = new Map(); // rel -> timestamp del 404 (cache negativa)
+const MISSING_TTL = 10 * 60 * 1000;
+
 async function fetchToCache(rel, file) {
   const r = await fetch(DDRAGON + rel, { signal: AbortSignal.timeout(15000) });
   if (!r.ok) { const e = new Error("upstream " + r.status); e.status = r.status; throw e; }
@@ -198,12 +240,20 @@ async function handleCdragon(req, res, rel) {
   }
   const file = safeJoin(CACHE_DIR, rel);
   if (!file) { res.writeHead(403); return res.end("Forbidden"); }
+
   if (!fs.existsSync(file)) {
+    // Un asset inexistente no se vuelve a pedir a Riot durante 10 minutos.
+    const missAt = missing.get(rel);
+    if (missAt && Date.now() - missAt < MISSING_TTL) {
+      res.writeHead(404); return res.end("Asset no disponible");
+    }
     try {
       if (!inflight.has(rel)) inflight.set(rel, fetchToCache(rel, file).finally(() => inflight.delete(rel)));
       await inflight.get(rel);
+      missing.delete(rel);
     } catch (e) {
       console.error(`[cdragon] fallo ${rel}: ${e.message}`);
+      if (e.status === 404) missing.set(rel, Date.now());
       res.writeHead(e.status === 404 ? 404 : 502); return res.end("Asset no disponible");
     }
   }
@@ -219,12 +269,14 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith("/assets/cdragon/")) {
     return handleCdragon(req, res, pathname.slice("/assets/cdragon/".length));
   }
+
   if (pathname.startsWith("/lol_picksandbans/")) {
-    let rel = pathname.slice("/lol_picksandbans/".length) || "overlay.html";
+    const rel = pathname.slice("/lol_picksandbans/".length) || "overlay.html";
     const file = safeJoin(WEB_DIR, rel);
     if (!file) { res.writeHead(403); return res.end("Forbidden"); }
-    return sendFile(req, res, file, "no-cache");
+    return sendFile(req, res, file, cacheFor(file));
   }
+
   res.writeHead(404); res.end("Not found");
 });
 
@@ -232,7 +284,9 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({
   noServer: true,
   maxPayload: MAX_WS_BYTES,
-  perMessageDeflate: { threshold: 1024 }, // comprime el lolChampionData (~400 KB)
+  // Solo comprime lo que vale la pena (championFull.json ~400 KB). El mensaje de
+  // stats (~1 KB) viaja sin comprimir: comprimirlo cada segundo era CPU pura.
+  perMessageDeflate: { threshold: 4096 },
 });
 
 server.on("upgrade", (req, socket, head) => {
@@ -246,6 +300,7 @@ server.on("upgrade", (req, socket, head) => {
     console.log(`[WS] Origen rechazado: ${origin}`);
     return reject(403, "Forbidden");
   }
+
   const auth = authenticate(url.searchParams.get("token"));
   if (!auth) { console.log("[WS] Conexion rechazada: token invalido"); return reject(401, "Unauthorized"); }
 
@@ -265,6 +320,7 @@ wss.on("connection", ws => {
   const room = ws.room;
   room.clients.add(ws);
   console.log(`[WS] +${ws.role} en "${room.name}" (${room.clients.size})`);
+
   ws.on("pong", () => { ws.isAlive = true; });
   ws.on("error", () => ws.terminate());
   ws.on("close", () => {
@@ -275,6 +331,7 @@ wss.on("connection", ws => {
   ws.on("message", (data, isBinary) => {
     if (isBinary) return;
     if (++ws.msgCount > 300) { console.log("[WS] Demasiados mensajes, cerrando conexion"); return ws.terminate(); }
+
     let msg;
     try { msg = JSON.parse(data.toString()); } catch { return; }
     if (!msg || typeof msg.Type !== "string") return;
@@ -295,6 +352,7 @@ wss.on("connection", ws => {
       }
       setAt(room.state, segs, parseContent(msg.Content));
       room.scheduleSave();
+
       const out = JSON.stringify({
         Type: "Update",
         Path: msg.Path,
@@ -311,6 +369,7 @@ wss.on("connection", ws => {
 });
 
 setInterval(() => { for (const ws of wss.clients) ws.msgCount = 0; }, 1000).unref();
+
 setInterval(() => { // heartbeat: elimina conexiones muertas
   for (const ws of wss.clients) {
     if (!ws.isAlive) { ws.terminate(); continue; }
@@ -326,10 +385,15 @@ function shutdown() {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
+// Un throw en un handler ya no tumba el proceso (con restart: unless-stopped eso era
+// un bucle de reinicio silencioso). Se registra y se sigue sirviendo.
+process.on("uncaughtException", e => console.error("[fatal] Excepcion no capturada:", e && e.stack || e));
+process.on("unhandledRejection", e => console.error("[fatal] Promesa rechazada:", e && e.stack || e));
+
 server.listen(PORT, HOST, () => {
   console.log(`LWO server escuchando en http://${HOST}:${PORT}`);
-  console.log(`  Overlay: /lol_picksandbans/overlay.html?token=<token view>`);
-  console.log(`  Admin:   /lol_picksandbans/admin.html?token=<token admin>`);
-  console.log(`  Agente:  ws(s)://<host>/ws?token=<token agent>`);
+  console.log(`  Overlay: /lol_picksandbans/overlay.html?token=`);
+  console.log(`  Admin:   /lol_picksandbans/admin.html?token=`);
+  console.log(`  Agente:  ws(s):///ws?token=`);
   console.log(`  Salas:   ${[...rooms.keys()].join(", ")}`);
 });
