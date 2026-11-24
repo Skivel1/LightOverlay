@@ -1,15 +1,14 @@
-  "use strict";
+"use strict";
 // Lee la API local de partida de League (https://127.0.0.1:2999/liveclientdata) y publica
 // estadisticas por equipo en "lolInGame/stats": kills, oro estimado, torres, dragones, buffs
 // y timers de objetivos (dragon/elder, bacuolarvas, heraldo, baron).
 //
 // IMPORTANTE: la API NO entrega el oro de los demas jugadores (solo el de quien juega).
 // Por eso el oro se ESTIMA con un modelo de ingresos que se recalcula cada segundo:
-//   oro inicial + oro pasivo + CS + kills + asistencias + torres + placas + inhibidores + epicos
+// oro inicial + oro pasivo + CS + kills + asistencias + torres + placas + inhibidores + epicos
 // Ademas se usa el valor de los items como suelo (nadie tiene items que no pudo pagar):
 // si el modelo se queda corto, se corrige hacia arriba y se mantiene esa correccion.
 // Sigue siendo una estimacion: no cuenta shutdowns/rachas ni oro de runas/items.
-
 const https = require("https");
 
 const STATS_PATH = "lolInGame/stats";
@@ -30,10 +29,11 @@ const TIMERS = {
   BARON_FIRST: 1500,      // baron 25:00
   BARON_RESPAWN: 360,     // 6:00 tras matarlo
 };
+
 // Nombre del evento de bacuolarvas en la API (sin confirmar; revisa el log "[InGame] Evento nuevo")
 const GRUB_EVENTS = ["HordeKill"];
-const seenEvents = new Set();
 
+const seenEvents = new Set();
 const normalizeToken = value => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 const GRUB_EVENT_KEYS = new Set(GRUB_EVENTS.map(normalizeToken));
 
@@ -41,7 +41,6 @@ const GRUB_EVENT_KEYS = new Set(GRUB_EVENTS.map(normalizeToken));
 function getEpicKind(ev) {
   const eventKey = normalizeToken(ev && ev.EventName);
   if (!eventKey) return null;
-
   if (eventKey === "DRAGONKILL") {
     return normalizeToken(ev && ev.DragonType) === "ELDER" ? "ELDER" : "DRAGON";
   }
@@ -49,10 +48,8 @@ function getEpicKind(ev) {
   if (eventKey === "HERALDKILL") return "HERALD";
   if (GRUB_EVENT_KEYS.has(eventKey)) return "GRUB";
   if (eventKey !== "EPICMONSTERKILL") return null;
-
   const monster = normalizeToken((ev && ev.MonsterType) || (ev && ev.DragonType));
   if (!monster) return null;
-
   if (monster.includes("ELDER")) return "ELDER";
   if (monster.includes("BARON") || monster.includes("NASHOR")) return "BARON";
   if ((monster.includes("RIFT") && monster.includes("HERALD")) || monster.includes("HERALD")) return "HERALD";
@@ -76,21 +73,21 @@ function logEpicEvent(ev, kind) {
 
 // ---- Valores de oro (temporada 2026 / parche 26.x). Ajustalos aqui si cambian. ----
 const GOLD = {
-  START: 500,              // oro inicial por jugador
-  PASSIVE_START: 100,      // el oro pasivo empieza en 1:40
-  PASSIVE_PER_SEC: 2.04,   // 20.4 cada 10 s
-  CS: 21,                  // promedio por minion/monstruo (aprox.; sube un poco en late)
-  KILL_BASE: 300,          // bounty base de un campeon (300 hasta nivel 6)
-  KILL_PER_LEVEL: 10,      // +10 por nivel de la victima desde el 7 (420 en nivel 18)
-  ASSIST_RATIO: 0.5,       // bolsa de asistencias = 50% del bounty, repartida entre asistentes
-  FIRST_BLOOD_KILL: 100,   // extra en la primera sangre
+  START: 500,                 // oro inicial por jugador
+  PASSIVE_START: 100,         // el oro pasivo empieza en 1:40
+  PASSIVE_PER_SEC: 2.04,      // 20.4 cada 10 s
+  CS: 21,                     // promedio por minion/monstruo (aprox.; sube un poco en late)
+  KILL_BASE: 300,             // bounty base de un campeon (300 hasta nivel 6)
+  KILL_PER_LEVEL: 10,         // +10 por nivel de la victima desde el 7 (420 en nivel 18)
+  ASSIST_RATIO: 0.5,          // bolsa de asistencias = 50% del bounty, repartida entre asistentes
+  FIRST_BLOOD_KILL: 100,      // extra en la primera sangre
   FIRST_BLOOD_ASSIST: 50,
-  PLATE: 120,              // oro local por placa
-  PLATE_DECAY_START: 660,  // las placas de torre exterior pierden valor desde 11:00...
-  PLATE_DECAY_PER_MIN: 10, // ...10 por minuto...
-  PLATE_DECAY_MAX: 40,     // ...hasta 40 menos (a las 15:00)
-  FIRST_TURRET: 300,       // bonus de la primera torre de la partida
-  INHIB: 50,               // inhibidor destruido
+  PLATE: 120,                 // oro local por placa
+  PLATE_DECAY_START: 660,     // las placas de torre exterior pierden valor desde 11:00...
+  PLATE_DECAY_PER_MIN: 10,    // ...10 por minuto...
+  PLATE_DECAY_MAX: 40,        // ...hasta 40 menos (a las 15:00)
+  FIRST_TURRET: 300,          // bonus de la primera torre de la partida
+  INHIB: 50,                  // inhibidor destruido
   // Oro de epicos POR JUGADOR del equipo. Deja en 0 los que no sepas para tu parche.
   EPIC: { BARON: 300, DRAGON: 0, HERALD: 0, GRUB: 0 },
   // Por tier de torre: oro global (lo recibe CADA jugador del equipo) y placas (todas caen
@@ -128,10 +125,11 @@ function nameKeys(p) {
 }
 
 // Interpreta el nombre de una torre y devuelve { owner, tier } (owner = equipo DUEÑO de la torre).
-// Formato actual:  "Turret_TChaos_L1_P3_2254202041_0"  (P3 exterior, P2 interior, P1 inhibidor)
-// Formato antiguo: "Turret_T2_L_03_A"                  (T1 = ORDER, T2 = CHAOS; 03/02/01; mid: 05/04/03)
+// Formato actual: "Turret_TChaos_L1_P3_2254202041_0" (P3 exterior, P2 interior, P1 inhibidor)
+// Formato antiguo: "Turret_T2_L_03_A" (T1 = ORDER, T2 = CHAOS; 03/02/01; mid: 05/04/03)
 // Si no reconoce el tier devuelve tier = null (la torre igual se cuenta, solo sin oro de torre/placas).
 const seenTurrets = new Set();
+
 function parseTurret(name) {
   let owner = null, tier = null, m;
   if ((m = /^Turret_T(Order|Chaos)_[^_]*_P(\d+)_/i.exec(name || ""))) {
@@ -146,6 +144,7 @@ function parseTurret(name) {
   } else if ((m = /T(Order|Chaos)/i.exec(name || ""))) { // ultimo recurso: solo el equipo dueño
     owner = m[1].toLowerCase() === "order" ? "ORDER" : "CHAOS";
   }
+
   if (!seenTurrets.has(name)) { // para verificar el mapeo en una partida real
     seenTurrets.add(name);
     log(`[InGame] Torre destruida: ${name} -> dueno ${owner || "?"}, tier ${tier || "desconocido"}`);
@@ -164,7 +163,7 @@ function plateGold(tier, t) {
 
 const emptyTeam = () => ({
   kills: 0, deaths: 0, assists: 0, cs: 0, gold: 0, towers: 0, dragons: [],
-  goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, epics: 0, items: 0 }, // desglose (para ajustar el modelo)
+  goldParts: { base: 0, cs: 0, kills: 0, assists: 0, towers: 0, plates: 0, epics: 0, items: 0 },
 });
 
 // Calcula el estado de cada objetivo: "spawning" (con cuenta regresiva), "alive" o "done".
@@ -176,28 +175,16 @@ function computeObjectives(events, gameTime, teamOf) {
   for (const ev of events) {
     const epic = getEpicKind(ev);
     if (!epic) continue;
-
-    if (epic === "ELDER") {
-      lastElder = ev.EventTime;
-      continue;
-    }
+    if (epic === "ELDER") { lastElder = ev.EventTime; continue; }
     if (epic === "DRAGON") {
       lastDragon = ev.EventTime;
       const t = teamOf(ev);
       if (t && ++drakes[t] >= TIMERS.SOUL_DRAGONS && soulAt == null) { soulAt = ev.EventTime; soulTeam = t; }
       continue;
     }
-    if (epic === "GRUB") {
-      grubs++;
-      continue;
-    }
-    if (epic === "HERALD") {
-      heraldDone = true;
-      continue;
-    }
-    if (epic === "BARON") {
-      lastBaron = ev.EventTime;
-    }
+    if (epic === "GRUB") { grubs++; continue; }
+    if (epic === "HERALD") { heraldDone = true; continue; }
+    if (epic === "BARON") { lastBaron = ev.EventTime; }
   }
 
   const timer = (spawnAt, extra) => Object.assign({
@@ -253,6 +240,7 @@ function computeStats(d, memo = {}) {
     });
   }
   const row = p => (p ? ledger.get(pid(p)) : null);
+
   // Reparte oro compartido (torres, placas, epicos) en partes iguales entre los jugadores del equipo.
   const shareTeam = (team, field, amount) => {
     const n = sizeByTeam[team] || 5;
@@ -264,15 +252,18 @@ function computeStats(d, memo = {}) {
 
   const buffs = [];
   let firstBlood = true, firstTurret = true;
+
   for (const ev of events) {
-    // Registra cada tipo de evento la primera vez (para confirmar nombres, p. ej. bacuolarvas).
+    // Registra cada tipo de evento la primera vez (para confirmar nombres, p. ej. bacuolarvas)
+    // y solo entonces lo loguea: antes esto se repetia en cada tick de 1 s.
     if (!seenEvents.has(ev.EventName)) {
       seenEvents.add(ev.EventName);
       log("[InGame] Evento nuevo:", JSON.stringify(ev));
+      const kind = getEpicKind(ev);
+      if (kind) logEpicEvent(ev, kind);
     }
 
     const epicKind = getEpicKind(ev);
-    if (epicKind) logEpicEvent(ev, epicKind);
 
     if (ev.EventName === "ChampionKill") {
       const killer = playerByName[ev.KillerName];
@@ -281,6 +272,7 @@ function computeStats(d, memo = {}) {
       const fbKill = firstBlood ? GOLD.FIRST_BLOOD_KILL : 0;
       const fbAssist = firstBlood ? GOLD.FIRST_BLOOD_ASSIST : 0;
       firstBlood = false;
+
       if (killer) row(killer).kills += bounty + fbKill;
       const assisters = (ev.Assisters || []).map(a => playerByName[a]).filter(Boolean);
       if (assisters.length) {
@@ -327,6 +319,7 @@ function computeStats(d, memo = {}) {
       if (team && GOLD.EPIC.GRUB) shareTeam(team, "epics", GOLD.EPIC.GRUB * (sizeByTeam[team] || 5));
     }
   }
+
   const active = buffs.filter(b => b.endsAt > gameTime).sort((a, b) => b.endsAt - a.endsAt)[0];
 
   // Totales por equipo, con el suelo de items por jugador.
@@ -344,13 +337,14 @@ function computeStats(d, memo = {}) {
     const floor = itemGold(r.p.items) - model; // si es > 0, el modelo se quedo corto
     if (floor > (memo.bias[id] || 0)) memo.bias[id] = floor;
     const bias = memo.bias[id] || 0;
-
     t.gold += model + bias;
+
     const g = t.goldParts;
     g.base += r.base; g.cs += r.cs; g.kills += r.kills; g.assists += r.assists;
     g.towers += r.towers; g.plates += r.plates; g.items += bias;
     g.epics += r.epics;
   }
+
   for (const t of Object.values(teams)) {
     t.gold = Math.round(t.gold);
     for (const k of Object.keys(t.goldParts)) t.goldParts[k] = Math.round(t.goldParts[k]);
@@ -396,6 +390,7 @@ function startInGame(publisher, opts = {}) {
   const host = opts.host || "127.0.0.1";
   const interval = opts.interval || 1000;
   const noEventsWarnAfterSec = Math.max(1, Number(opts.noEventsWarnAfterSec) || 6);
+
   let state = "unknown"; // "in" | "out"
   let timer = null;
   let stopped = false;
@@ -431,12 +426,14 @@ function startInGame(publisher, opts = {}) {
         noEventsSince = null;
         noEventsWarned = false;
         memo.bias = {}; memo.last = null;
-        seenEvents.clear(); // vuelve a registrar los eventos en la siguiente partida
+        seenEvents.clear();  // vuelve a registrar los eventos en la siguiente partida
+        seenTurrets.clear(); // y vuelve a loguear el mapeo de torres
         publisher.publish(STATS_PATH, null);
       }
     }
     if (!stopped) timer = setTimeout(tick, interval);
   };
+
   tick();
   return () => { stopped = true; clearTimeout(timer); };
 }
