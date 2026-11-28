@@ -31,7 +31,7 @@ var lastPhase = "";
 //#region Fin de seleccion y sonido de inicio
 // Sonido: coloca el archivo en server/web/assets/media/ y ajusta el nombre aqui.
 // Tambien se puede cambiar por URL: ?audio=otro.mp3  (o ?audio=off para silenciarlo)  y  ?volume=0.5
-var INTRO_AUDIO = "seleccion.mp3";
+var INTRO_AUDIO = "LCK_Select.mp3";
 var INTRO_VOLUME = 1;          // 0 a 1
 var RELOAD_DELAY_MS = 1500;    // espera antes de recargar (evita recargas por un corte momentaneo)
 
