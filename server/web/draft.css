@@ -265,18 +265,19 @@ body.nobg #stage { background: transparent; }
 .ban.stamp { animation: stamp .55s cubic-bezier(.2,1.6,.4,1); }
 @keyframes stamp { 0% { transform: scale(1.35); filter: brightness(2.4); } 100% { transform: scale(1); } }
 
-/* ---- Torneo ---- */
+/* ---- Torneo (arriba, sobre el parche) ---- */
 #tournament {
-  position: absolute; left: 50%; top: 925px; transform: translateX(-50%);
-  min-width: 134px; padding: 9px 22px; text-align: center;
-  border: 2px solid var(--skt-gold); border-top-width: 2px;
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+  min-width: 134px; padding: 4px 18px; text-align: center;
+  border: 2px solid var(--skt-gold);
   background: rgba(10, 7, 9, .55);
   clip-path: polygon(6% 0, 94% 0, 100% 100%, 0 100%);
-  font-size: 26px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
+  font-size: 19px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
   color: var(--skt-ivory);
+  z-index: 6;
   display: none;
 }
 #tournament.on { display: block; }
-#tournament img { max-height: 54px; max-width: 220px; display: none; margin: 0 auto; }
+#tournament img { max-height: 30px; max-width: 200px; display: none; margin: 0 auto; }
 #tournament.has-logo img { display: block; }
 #tournament.has-logo span { display: none; }
