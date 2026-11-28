@@ -18,6 +18,38 @@ var lastLocked = {}, lastBanned = {}, fxReady = false;
 var timerKey = null, timerAt = 0, timerLeft = 0, lastLabel = "";
 var pipCount = { 1: -1, 2: -1 };
 
+/* ---- Sonido de inicio (portado de overlay.js) ---- */
+// Archivo en server/web/assets/media/. Tambien por URL: ?audio=otro.mp3 (o ?audio=off) y ?volume=0.5
+var INTRO_AUDIO = "LCK_Select.mp3";
+var INTRO_VOLUME = 1;          // 0 a 1
+
+var hadSession = false;        // hubo una seleccion en esta carga de la pagina
+var introAudio = null;
+
+function SetupIntroAudio() {
+    var q = new URLSearchParams(location.search);
+    var file = q.get("audio") || INTRO_AUDIO;
+    var vol = parseFloat(q.get("volume"));
+    if (isNaN(vol)) vol = INTRO_VOLUME;
+    if (file === "off") return;
+
+    introAudio = new Audio("assets/media/" + encodeURIComponent(file));
+    introAudio.preload = "auto";
+    introAudio.volume = Math.max(0, Math.min(1, vol));
+}
+
+function PlayIntroSound() {
+    if (!introAudio) SetupIntroAudio();
+    if (!introAudio) return;
+    try {
+        introAudio.currentTime = 0;
+        var p = introAudio.play();
+        if (p && p.catch) p.catch(function (err) { console.warn("No se pudo reproducir el audio de inicio:", err); });
+    } catch (err) {
+        console.warn("No se pudo reproducir el audio de inicio:", err);
+    }
+}
+
 function $(id) { return document.getElementById(id); }
 function el(tag, cls, parent) {
     var e = document.createElement(tag);
