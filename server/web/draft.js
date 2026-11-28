@@ -219,9 +219,15 @@ function render() {
 
 var hasSession = !!(cs && cs.myTeam);
     cls($("stage"), "hidden", !hasSession);
-    if (!hasSession) { fxReady = false; lastLabel = ""; return; }
+    if (!hasSession) { fxReady = false; lastLabel = ""; hadSession = false; return; }
 
     var actions = allActions(cs);
+
+    /* suena solo al empezar de verdad: si se recarga a mitad de seleccion ya hay acciones completadas */
+    if (!hadSession) {
+        hadSession = true;
+        if (actions.filter(function (a) { return a.completed; }).length === 0) PlayIntroSound();
+    }
 
     /* fase y temporizador */
     var label = phaseLabel(cs, actions);
