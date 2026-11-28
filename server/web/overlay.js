@@ -28,6 +28,72 @@ var epoch = 0;
 var phaseTimer = 0;
 var lastPhase = "";
 
+//#region Fin de seleccion y sonido de inicio
+// Sonido: coloca el archivo en server/web/assets/media/ y ajusta el nombre aqui.
+// Tambien se puede cambiar por URL: ?audio=otro.mp3  (o ?audio=off para silenciarlo)  y  ?volume=0.5
+var INTRO_AUDIO = "seleccion.mp3";
+var INTRO_VOLUME = 1;          // 0 a 1
+var RELOAD_DELAY_MS = 1500;    // espera antes de recargar (evita recargas por un corte momentaneo)
+
+var hadSession = false;        // hubo una seleccion en esta carga de la pagina
+var reloadTimer = null;
+var introAudio = null;
+
+function SetupIntroAudio() {
+    var q = new URLSearchParams(location.search);
+    var file = q.get("audio") || INTRO_AUDIO;
+    var vol = parseFloat(q.get("volume"));
+    if (isNaN(vol))
+        vol = INTRO_VOLUME;
+    if (file === "off")
+        return;
+
+    introAudio = new Audio("assets/media/" + encodeURIComponent(file));
+    introAudio.preload = "auto";
+    introAudio.volume = Math.max(0, Math.min(1, vol));
+}
+
+function PlayIntroSound() {
+    if (!introAudio)
+        SetupIntroAudio();
+    if (!introAudio)
+        return;
+    try {
+        introAudio.currentTime = 0;
+        var p = introAudio.play();
+        if (p && p.catch)
+            p.catch(function (err) { Log("No se pudo reproducir el audio de inicio:", err); });
+    } catch (err) {
+        Log("No se pudo reproducir el audio de inicio:", err);
+    }
+}
+
+// Se llama en cada actualizacion con la sesion actual (o null si no hay seleccion).
+function OnSessionChange(cs) {
+    if (!cs) {
+        // La seleccion termino o se cancelo: recarga la pagina y queda a la espera de la siguiente.
+        if (hadSession && !reloadTimer) {
+            reloadTimer = setTimeout(function () { location.reload(); }, RELOAD_DELAY_MS);
+        }
+        return;
+    }
+
+    // Volvio la sesion antes de recargar (corte momentaneo): no recargues.
+    if (reloadTimer) {
+        clearTimeout(reloadTimer);
+        reloadTimer = null;
+    }
+
+    if (!hadSession) {
+        hadSession = true;
+        // Suena solo al empezar de verdad: si la pagina se recarga a mitad de seleccion
+        // ya habra acciones completadas y no se repite el sonido.
+        if (GetCompletedActions().length === 0)
+            PlayIntroSound();
+    }
+}
+//#endregion Fin de seleccion y sonido de inicio
+
 setInterval(function () {
     phaseTimer -= 100;
     if (phaseTimer < 0)
@@ -353,6 +419,7 @@ function UpdatePick(i, teamid, team, inProgress) {
 function UpdatePB() {
     epoch++;
     var cs = _S.lolChampSelect && _S.lolChampSelect.session;
+    OnSessionChange(cs);
     if (!cs)
         return;
 
@@ -528,6 +595,7 @@ function Main() {
 
     preloadImage(GenerateSplashArtUrl, 0);
     preloadImage(GenerateSquareArtUrl, 0);
+    SetupIntroAudio();
 
     SendMessage("Subscribe", "lolChampSelect/admin");
     SendMessage("Subscribe", "lolChampSelect/session");
