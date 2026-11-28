@@ -5,6 +5,7 @@ var States = ["gone"];
 var lolVersion = "";
 var championsById = {};
 var championsByIndex = [];
+var loadedChampVersion = "";
 
 function adminData() {
     if (!_S.lolChampSelect)
@@ -26,7 +27,13 @@ _S.theirTeamBanCount = 0;
 var initDone = false;
 var epoch = 0;
 var phaseTimer = 0;
+var phaseTotal = 0;
 var lastPhase = "";
+var fxReady = false;        // evita animar todo al cargar la pagina a mitad de seleccion
+var lastPickState = {};     // "team_slot" -> id del campeon bloqueado
+var lastBanState = {};      // "team_slot" -> id del campeon baneado
+var FX_LOCK_MS = 1400;
+var FX_STAMP_MS = 1200;
 
 //#region Fin de seleccion y sonido de inicio
 // Sonido: coloca el archivo en server/web/assets/media/ y ajusta el nombre aqui.
@@ -71,6 +78,7 @@ function PlayIntroSound() {
 // Se llama en cada actualizacion con la sesion actual (o null si no hay seleccion).
 function OnSessionChange(cs) {
     if (!cs) {
+        fxReady = false;
         // La seleccion termino o se cancelo: recarga la pagina y queda a la espera de la siguiente.
         if (hadSession && !reloadTimer) {
             reloadTimer = setTimeout(function () { location.reload(); }, RELOAD_DELAY_MS);
@@ -99,7 +107,21 @@ setInterval(function () {
     if (phaseTimer < 0)
         phaseTimer = 0;
     SetTimerText(phaseTimer);
+    UpdateTimerBar();
 }, 100);
+
+function UpdateTimerBar() {
+    var fill = document.getElementsByClassName("timerfill")[0];
+    var countdown = document.getElementsByClassName("countdown")[0];
+    if (fill) {
+        var pct = phaseTotal > 0 ? Math.max(0, Math.min(1, phaseTimer / phaseTotal)) : 0;
+        fill.style.width = (pct * 100).toFixed(1) + "%";
+    }
+    if (countdown) {
+        var urgent = phaseTimer > 0 && phaseTimer <= 10000;
+        countdown.classList.toggle("urgent", urgent);
+    }
+}
 
 function Log(...arr) {
     console.log(...arr);
@@ -132,7 +154,9 @@ async function UpdateChampionData() {
         return;
     }
 
-    const url = "/assets/cdragon/" + version + "/data/en_US/championFull.json";
+    if (version === loadedChampVersion && championsByIndex.length > 0)
+        return;
+    const url = "/assets/cdragon/" + version + "/data/en_US/champion.json";
     Log("Loading champion data:", url);
 
     try {
@@ -142,6 +166,7 @@ async function UpdateChampionData() {
 
         championsById = {};
         championsByIndex = [];
+        loadedChampVersion = version;
 
         for (var k in championMap) {
             if (!Object.prototype.hasOwnProperty.call(championMap, k))
@@ -321,15 +346,30 @@ function UpdatePhase(newPhase) {
 }
 
 function UpdateTimer(timer) {
+    if (timer && typeof timer.totalTimeInPhase === "number")
+        phaseTotal = timer.totalTimeInPhase;
     if (timer && typeof timer.adjustedTimeLeftInPhase === "number") {
         phaseTimer = -(Date.now() - timer.internalNowInEpochMs - timer.adjustedTimeLeftInPhase);
     }
+}
+
+function TriggerFx(slot, fxName, ms) {
+    slot.fx = fxName;
+    UpdatePath(null, slot._path, slot);
+    setTimeout(function () {
+        if (slot.fx === fxName) {
+            slot.fx = "";
+            UpdatePath(null, slot._path, slot);
+        }
+    }, ms);
 }
 
 function UpdateBan(i, teamid, action) {
     var slot = _S.bans[teamid][i];
     if (!slot)
         return;
+    slot._path = "lolChampSelect/ban/" + teamid + "/" + i;
+    var key = teamid + "_" + i;
 
     if (!action) {
         slot.style = {
@@ -337,16 +377,26 @@ function UpdateBan(i, teamid, action) {
             backgroundColor: null,
             backgroundImage: null
         };
+        slot.state = "";
+        lastBanState[key] = 0;
     } else {
         var champ = action.championId > 0 ? championsById[action.championId] : null;
+        var done = !!action.completed && champ != null;
         slot.style = {
             opacity: action.isInProgress ? 0.8 : 1,
             backgroundColor: champ == null ? (teamid == 1 ? "var(--team-left-color)" : "var(--team-right-color)") : null,
             backgroundImage: champ == null ? null : "url(" + GenerateSquareArtUrl(champ.id) + ")"
         };
+        // active = ban en curso (pulso), done = ban confirmado (gris + sello)
+        slot.state = action.isInProgress ? "active" : (done ? "done" : "");
+
+        var banned = done ? action.championId : 0;
+        if (fxReady && banned && lastBanState[key] !== banned)
+            TriggerFx(slot, "stamp", FX_STAMP_MS);
+        lastBanState[key] = banned;
     }
 
-    UpdatePath(null, "lolChampSelect/ban/" + teamid + "/" + i, slot);
+    UpdatePath(null, slot._path, slot);
 }
 
 function UpdatePick(i, teamid, team, inProgress) {
@@ -357,6 +407,8 @@ function UpdatePick(i, teamid, team, inProgress) {
 
     if (!member) {
         slot.reset();
+        slot.state = "";
+        lastPickState[teamid + "_" + i] = 0;
     } else {
         var matchedInProgress = inProgress.filter(function (x) { return x.actorCellId == member.cellId && x.type == "pick"; });
         var inProgressAction = matchedInProgress.length > 0 ? matchedInProgress[0] : null;
@@ -408,6 +460,15 @@ function UpdatePick(i, teamid, team, inProgress) {
             slot.positionBackgroundImage = "url(assets/roles/role-" + pos + ".png)";
         }
 
+        // hover = eligiendo sin campeon, picking = campeon tentativo, locked = confirmado
+        var pkey = teamid + "_" + i;
+        var lockedId = (!inProgressAction && member.championId > 0) ? member.championId : 0;
+        slot._path = "lolChampSelect/pick/" + teamid + "/" + i;
+        slot.state = inProgressAction ? (champ ? "picking" : "hover") : (lockedId ? "locked" : "");
+        if (fxReady && lockedId && lastPickState[pkey] !== lockedId)
+            TriggerFx(slot, "lock", FX_LOCK_MS);
+        lastPickState[pkey] = lockedId;
+
         slot.summonerName = GetSummonerName(member.summonerId, member.cellId);
         slot.championName = champ ? champ.name : null;
         slot.layout = inProgressAction && champ == null ? "during-initial" : champ != null ? "after-initial" : "";
@@ -452,6 +513,8 @@ function UpdatePB() {
         UpdateBan(i, myTeamId, myTeamBanActions[i]);
         UpdateBan(i, theirTeamId, theirTeamBanActions[i]);
     }
+
+    fxReady = true;
 }
 
 //#region DataContext
