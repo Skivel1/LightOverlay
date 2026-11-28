@@ -12,6 +12,7 @@
         <div class="patchinfo" bind="{attribute=innerHTML path=admin/patchInfo}"></div>
         <div class="countdown"></div>
         <div class="phase-title"></div>
+        <div class="timerbar"><div class="timerfill"></div></div>
         <div class="flex-spacer"></div>
       </div>
       <div template="{class=teaminfo side=right}"></div>
@@ -50,9 +51,9 @@
     </div>
  
     <div id="templates" style="display: none" >
-      <div class='ban' bind-context="{lolChampSelect/ban/{team}/{slot}/}" bind="{attribute=style path=style in=propertyCopyConverter}"></div>
+      <div class='ban' bind-context="{lolChampSelect/ban/{team}/{slot}/}" bind="{attribute=style path=style in=propertyCopyConverter}{attribute=dataset.state path=state}{attribute=dataset.fx path=fx}"></div>
 
-      <div class="pick" bind-context="{lolChampSelect/pick/{team}/{slot}/}" bind="{attribute=layout path=layout in=layoutConverter}{attribute=style.flex-grow path=flex}">
+      <div class="pick" bind-context="{lolChampSelect/pick/{team}/{slot}/}" bind="{attribute=layout path=layout in=layoutConverter}{attribute=style.flex-grow path=flex}{attribute=dataset.state path=state}{attribute=dataset.fx path=fx}">
         <div class='pick-text'>
           <div class='pos-icon' bind="{attribute=style.backgroundImage path=positionBackgroundImage}"></div>
           <p class='pick-champ' bind="{attribute=innerHTML path=championName}"/>
