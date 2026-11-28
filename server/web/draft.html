@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Draft</title>
+  <link rel="stylesheet" href="draft.css">
+</head>
+<body>
+  <div id="stage" class="hidden">
+
+    <!-- Encabezado -->
+    <div id="header">
+      <div class="team team-left">
+        <img class="team-logo" id="logoL" alt="">
+        <div class="team-name" id="nameL"></div>
+        <div class="pips" id="pipsL"></div>
+      </div>
+
+      <div id="center-top">
+        <div id="patch"></div>
+        <div id="timer"></div>
+        <div id="chip"></div>
+      </div>
+
+      <div class="team team-right">
+        <div class="team-name" id="nameR"></div>
+        <img class="team-logo" id="logoR" alt="">
+        <div class="pips" id="pipsR"></div>
+      </div>
+    </div>
+
+    <!-- Tarjetas laterales de picks -->
+    <div class="picks picks-left"  id="picksL"></div>
+    <div class="picks picks-right" id="picksR"></div>
+
+    <!-- Franjas verticales centrales -->
+    <div id="strips">
+      <div class="strips-group" id="stripsL"></div>
+      <div id="strips-gap"><div id="complete"><span class="c1">DRAFT</span><span class="c2">COMPLETE</span></div></div>
+      <div class="strips-group" id="stripsR"></div>
+    </div>
+
+    <!-- Fearless -->
+    <div class="fearless" id="fearlessL"><div class="fearless-title">FEARLESS DRAFT</div><div class="fearless-grid"></div></div>
+    <div class="fearless" id="fearlessR"><div class="fearless-title">FEARLESS DRAFT</div><div class="fearless-grid"></div></div>
+
+    <!-- Bans -->
+    <div class="bans bans-left"  id="bansL"></div>
+    <div class="bans bans-right" id="bansR"></div>
+
+    <!-- Torneo -->
+    <div id="tournament"><img id="tournament-logo" alt=""><span id="tournament-name"></span></div>
+  </div>
+
+  <script src="state.js"></script>
+  <script src="draft.js"></script>
+</body>
+</html>

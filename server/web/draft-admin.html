@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Admin del Draft</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f1524; color: #e6e9f2; margin: 0; padding: 24px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: #8d95a8; font-size: 13px; margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 980px; }
+    fieldset { border: 1px solid #2a3556; border-radius: 8px; padding: 12px 14px 14px; }
+    legend { padding: 0 6px; color: #c8a14a; font-weight: 600; }
+    label { display: block; font-size: 12px; color: #9aa3b8; margin: 10px 0 3px; }
+    input, textarea { width: 100%; box-sizing: border-box; background: #0a0f1c; color: #e6e9f2; border: 1px solid #2a3556; border-radius: 5px; padding: 7px 9px; font: inherit; }
+    textarea { min-height: 62px; resize: vertical; }
+    .full { grid-column: 1 / -1; }
+    .hint { font-size: 11px; color: #6f7893; margin-top: 3px; }
+    #status { font-size: 12px; margin-left: 10px; color: #c8a14a; }
+    code { background: #0a0f1c; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Admin del Draft <span id="status">conectando…</span></h1>
+  <div class="sub">Los cambios se envían al instante a <code>draft.html</code>. Necesitas abrir esta página con el token de admin.</div>
+
+  <div class="grid">
+    <fieldset>
+      <legend>Equipo izquierdo</legend>
+      <label>Nombre</label><input data-k="leftTeamName">
+      <label>Logo (archivo en assets/teams/)</label><input data-k="leftTeamIcon" placeholder="team-left.png">
+      <label>Color</label><input data-k="leftTeamColor" placeholder="#3b82f6">
+      <label>Victorias</label><input data-k="leftTeamScore" type="number" min="0">
+      <label>Banner del pick (assets/champselectbanner/)</label><input data-k="leftPickBanner">
+    </fieldset>
+
+    <fieldset>
+      <legend>Equipo derecho</legend>
+      <label>Nombre</label><input data-k="rightTeamName">
+      <label>Logo (archivo en assets/teams/)</label><input data-k="rightTeamIcon" placeholder="team-right.png">
+      <label>Color</label><input data-k="rightTeamColor" placeholder="#e0463c">
+      <label>Victorias</label><input data-k="rightTeamScore" type="number" min="0">
+      <label>Banner del pick (assets/champselectbanner/)</label><input data-k="rightPickBanner">
+    </fieldset>
+
+    <fieldset class="full">
+      <legend>Torneo</legend>
+      <label>Nombre del torneo (centro inferior)</label><input data-k="tournamentName" placeholder="NORTH CUP">
+      <label>Logo del torneo (opcional, assets/teams/; reemplaza el texto)</label><input data-k="tournamentLogo">
+      <label>Mejor de (BO)</label><input data-k="bestOf" type="number" min="1" max="7" placeholder="3">
+      <label>Parche</label><input data-k="patchInfo" placeholder="Patch 26.23">
+      <label>Versión de Data Dragon (vacío = la última)</label><input data-k="version" placeholder="16.23.1">
+    </fieldset>
+
+    <fieldset>
+      <legend>Fearless – equipo izquierdo</legend>
+      <label>Campeones ya usados</label>
+      <textarea data-k="leftFearless" placeholder="Ahri, Zed, Lux"></textarea>
+      <div class="hint">Separados por coma. Acepta nombre o id (p. ej. <code>Dr. Mundo</code>).</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Fearless – equipo derecho</legend>
+      <label>Campeones ya usados</label>
+      <textarea data-k="rightFearless" placeholder="Yasuo, Leona"></textarea>
+      <div class="hint">Se muestran solo cuando hay al menos uno.</div>
+    </fieldset>
+  </div>
+
+  <script src="state.js"></script>
+  <script src="draft-admin.js"></script>
+</body>
+</html>
