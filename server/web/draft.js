@@ -217,7 +217,7 @@ function render() {
         cls($(f[2]), "on", list.length > 0);
     });
 
-    var hasSession = !!(cs && cs.myTeam);
+var hasSession = !!(cs && cs.myTeam);
     cls($("stage"), "hidden", !hasSession);
     if (!hasSession) { fxReady = false; lastLabel = ""; return; }
 
