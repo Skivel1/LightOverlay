@@ -326,4 +326,5 @@ function pips(team, box, wins, total) {
 
 build();
 loadChamps();
+SetupIntroAudio();
 setInterval(render, 200);
